@@ -1,4 +1,4 @@
-# Meadow auto-updater. Runs every 10 minutes from Task Scheduler (task "Meadow updater").
+# Meadow auto-updater. Runs once a day (4 AM, or at next startup if missed) from Task Scheduler (task "Meadow updater").
 # Pulls the newest version from the private GitHub repo and copies the app files into the
 # Meadow folder. It never touches the data folder (your tasks, settings and backups).
 $ErrorActionPreference = 'Stop'

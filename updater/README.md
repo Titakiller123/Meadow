@@ -1,5 +1,5 @@
 # Meadow auto-updater
-Every 10 minutes Windows runs `update.ps1` (Task Scheduler task "Meadow updater"). If there's a new version on GitHub it copies the app files into this folder and restarts Meadow. The `data` folder is never touched.
+Once a day (4 AM, or as soon as the PC is on if it missed that) Windows runs `update.ps1` (Task Scheduler task "Meadow updater"). If there's a new version on GitHub it copies the app files into this folder and restarts Meadow. The `data` folder is never touched.
 
 - Log: `.updater\update.log`
 - Update now: right-click `update.ps1` > Run with PowerShell, or `schtasks /run /tn "Meadow updater"`
