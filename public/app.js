@@ -927,7 +927,7 @@
           ${order.length > 1 ? `<div class="group">Pay-off order</div>${order.map((d, i) => `<div class="cd ${i ? '' : 'first'}"><span class="n ${i ? '' : 'soon'}"><b>${i + 1}</b><small>${i ? 'next' : 'focus'}</small></span><span class="lt"><b>${esc(d.name)}</b><span>${fmtMoney(+d.balance, cur())}${d.apr ? ` · ${+d.apr}%` : ''}</span></span><span class="amt">${plan.paidOff[d.id] ? monthOut(plan.paidOff[d.id]) : '—'}</span></div>`).join('')}` : ''}
         </section>
         <div>
-          <section class="panel">${panelHead('receipt', 'Your debts', `<button class="linkbtn" data-act="new-debt">${ic('plus', 's')}Add</button>`, 'accent')}
+          <section class="panel">${panelHead('receipt', 'Your debts', `<button class="linkbtn" data-act="new-debt">${ic('plus', 's')}Add another debt</button>`, 'accent')}
             ${all_.map((d, i) => debtRow(d, plan, i)).join('')}
           </section>
           <section class="panel">${panelHead('list', 'Recent payments', '', 'accent')}
@@ -1176,7 +1176,7 @@
         <div class="muted" style="font-size:14px">${syncState === 'offline' ? 'Can\'t reach your PC right now. Everything is saved on this device and will sync later.' : 'Connected to your PC.'}${S.outbox.length ? ` ${S.outbox.length} change${S.outbox.length > 1 ? 's' : ''} waiting.` : ''}</div>
         <div class="btnrow"><button class="btn" data-act="sync-now">${ic('sync', 's')}Sync now</button><a class="btn" href="/api/export" download>${ic('download', 's')}Backup</a></div>
       </section>
-      <div class="muted" style="text-align:center;font-size:12.5px;padding:14px 0 20px">Meadow · version 5.2</div>
+      <div class="muted" style="text-align:center;font-size:12.5px;padding:14px 0 20px">Meadow · version 5.3</div>
       </div></div>`;
   }
 

@@ -12,6 +12,18 @@ const TS_PORT = 8443; // Tailscale Serve port (443 is used by Dice and Luck's Fu
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const PLAN = require('./public/plan.js'); // the paycheque plan, shared with the app
+
+// Debts you track in Meadow (on this PC, port 3200), used by the paycheque plan. Read-only, refreshed every 5 minutes.
+let meadowDebts = { debts: [], at: null, ok: false };
+function refreshMeadowDebts() {
+  const req = http.get({ host: '127.0.0.1', port: 3200, path: '/api/link/debts', timeout: 3000 }, res => {
+    let d = ''; res.on('data', c => { d += c; if (d.length > 2e5) req.destroy(); });
+    res.on('end', () => { try { const j = JSON.parse(d); if (Array.isArray(j.debts)) meadowDebts = { debts: j.debts.slice(0, 50), at: new Date().toISOString(), ok: true }; } catch {} });
+  });
+  req.on('timeout', () => req.destroy()); req.on('error', () => { meadowDebts.ok = false; });
+}
+refreshMeadowDebts(); setTimeout(refreshMeadowDebts, 20e3); setInterval(refreshMeadowDebts, 5 * 60 * 1000);
 
 // kind: need = necessary (rent, bills, groceries, gas…), want = nice to have, junk = fast food & co.
 const DEFAULT_CATEGORIES = [
@@ -606,6 +618,9 @@ route('PUT', '/api/settings', (b) => {
     }));
   }
   if (b.onboarded !== undefined) s.onboarded = !!b.onboarded;
+  if (b.everydayWeekly !== undefined) s.everydayWeekly = b.everydayWeekly ? money(b.everydayWeekly, { allowZero: true }) : 0;
+  if (b.planBuffer !== undefined) s.planBuffer = b.planBuffer === null || b.planBuffer === '' ? null : money(b.planBuffer, { allowZero: true });
+  if (b.planSavePct !== undefined) s.planSavePct = b.planSavePct === null || b.planSavePct === '' ? null : Math.max(0, Math.min(60, Number(b.planSavePct) || 0));
   if (b.autoSave !== undefined) s.autoSave = !!b.autoSave; // put the suggested amount aside on every paycheck without asking
   applyRates(s, b);
   // setting your wallet balance: entries logged from now on move it up and down
@@ -733,13 +748,29 @@ function lifeLinkSummary() {
     const nextPayday = upcoming.find(u => u.type === 'income' && u.due > t)?.due || null;
     const until = nextPayday || addDaysStr(t, 14);
     const keep = sumOf(upcoming.filter(u => u.type === 'expense' && u.due < until).map(u => u.amount));
+    // same paycheque plan as the app: bills, everyday needs, debt minimums and a buffer come out first
+    const kinds = Object.fromEntries((s.categories || []).map(c => [c.id, c.kind]));
+    let perDay = s.everydayWeekly > 0 ? s.everydayWeekly / 7 : 0;
+    if (!perDay) {
+      const since = addDaysStr(t, -60), list = db.transactions.filter(x => x.type === 'expense' && !x.recurringId && x.date >= since && x.date <= t && kinds[x.category] === 'need');
+      if (list.length) { const first = list.reduce((a, x) => x.date < a ? x.date : a, t); perDay = sumOf(list.map(x => x.amount)) / Math.max(14, Math.round((new Date(t) - new Date(first)) / 864e5) + 1); }
+    }
+    const perMonth = r => r.freq === 'weekly' ? r.amount * 52 / 12 : r.freq === 'biweekly' ? r.amount * 26 / 12 : r.amount;
+    const plan = wallet == null ? null : PLAN.plan({
+      pay: 0, wallet, today: t, nextPayday, dailyNeeds: perDay,
+      bills: upcoming.filter(u => u.type === 'expense' && u.due < until).map(u => ({ name: u.name, due: u.due, amount: u.amount })),
+      monthlyBills: sumOf(db.recurring.filter(r => r.type === 'expense').map(perMonth)), emergency: sumOf(db.vault.map(v => v.amount)),
+      debts: meadowDebts.debts, goals: [], buffer: s.planBuffer, savePct: s.planSavePct,
+      usualPay: Math.max(0, ...db.recurring.filter(r => r.type === 'income' && !r.variable).map(r => +r.amount || 0)),
+    });
     const ym = t.slice(0, 7);
     const monthSpent = sumOf(db.transactions.filter(x => x.type === 'expense' && (x.date || '').startsWith(ym)).map(x => x.amount));
     const goals = db.goals.map(g => ({ name: g.name, emoji: g.emoji, saved: sumOf((g.deposits || []).map(d => d.amount)), target: g.target, deadline: g.deadline || null }))
       .filter(g => g.saved < g.target).slice(0, 5);
     return {
       app: 'money-quest', at: new Date().toISOString(), name: s.name, currency: s.currency || '$',
-      wallet, safeToSpend: wallet == null ? null : wallet - keep, keepForBills: keep, nextPayday,
+      wallet, safeToSpend: plan ? plan.left : null, keepForBills: keep, nextPayday,
+      setAside: plan ? { bills: plan.billTotal, everyday: plan.everyday, debtMinimums: plan.minTotal, buffer: plan.buffer } : null,
       month: { spent: monthSpent, budget: s.monthlyBudget || 0 },
       upcoming, goals,
     };
@@ -790,6 +821,12 @@ const server = http.createServer(async (req, res) => {
   try {
     const who = p.startsWith('/api/') ? resolveProfile(req) : null;
     useProfile(who || mainProfile());
+    if (p === '/api/meadow-debts' && req.method === 'GET') {
+      if (!who) throw new HttpError(401, 'Locked');
+      if (who !== mainProfile()) return send(res, 200, { debts: [], at: null, ok: false }); // Meadow is the main person's
+      if (Date.now() - Date.parse(meadowDebts.at || 0) > 60e3) refreshMeadowDebts();
+      return send(res, 200, meadowDebts);
+    }
     if (p === '/api/export.csv') {
       if (!who) throw new HttpError(401, 'Locked');
       res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="money-quest.csv"' });

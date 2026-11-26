@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1020">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Money Quest">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/styles.css">
+  <title>Money Quest</title>
+</head>
+<body>
+  <header id="topbar"></header>
+  <main id="app"><div class="loading">Loading your quest…</div></main>
+  <nav id="tabs">
+    <button data-tab="home"><span><svg class="i"><use href="#i-home"/></svg></span>Home</button>
+    <button data-tab="log"><span><svg class="i"><use href="#i-log"/></svg></span>Log</button>
+    <button data-tab="add" class="add-btn" aria-label="Add entry"><span><svg class="i"><use href="#i-plus"/></svg></span></button>
+    <button data-tab="stats"><span><svg class="i"><use href="#i-stats"/></svg></span>Stats</button>
+    <button data-tab="tower"><span><svg class="i"><use href="#i-tower"/></svg></span>Tower</button>
+    <button data-tab="me"><span><svg class="i"><use href="#i-hat"/></svg></span>Me</button>
+  </nav>
+  <div id="modal" hidden></div>
+  <div id="toasts"></div>
+  <script src="/art.js"></script>
+  <script src="/app.js"></script>
+  <script src="/shared.js"></script>
+  <script src="/plan.js"></script>
+  <script src="/tower.js"></script>
+</body>
+</html>

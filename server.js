@@ -478,6 +478,15 @@ const server = http.createServer(async (req, res) => {
   try { p = decodeURIComponent(url.pathname); } catch { p = '/'; }
   try {
     if (p === '/api/ping') return sendJson(req, res, 200, { ok: true, app: 'meadow', rev: db.rev });
+    // your debts, for Money Quest's paycheque plan. Only programs on this PC can read it.
+    if (p === '/api/link/debts' && req.method === 'GET') {
+      const loop = /^(::1|127\.|::ffff:127\.)/.test(req.socket.remoteAddress || '');
+      const proxied = Object.keys(req.headers).some(h => h.startsWith('x-forwarded') || h.startsWith('tailscale-') || h.startsWith('cf-') || h === 'forwarded');
+      if (!loop || proxied) return sendJson(req, res, 403, { error: 'Only apps on this PC can read this.' });
+      const debts = Object.values(db.items.debts || {}).filter(d => d && !d.deleted && +d.balance > 0)
+        .map(d => ({ name: String(d.name || 'Debt').slice(0, 60), balance: +d.balance || 0, apr: +d.apr || 0, min: +d.min || 0, dueDay: +d.dueDay || null }));
+      return sendJson(req, res, 200, { app: 'meadow', debts });
+    }
     if (p === '/api/links' && req.method === 'GET') return sendJson(req, res, 200, await links(url.searchParams.has('force')));
     if (p === '/api/calendars' && req.method === 'GET') return sendJson(req, res, 200, await calendars(url.searchParams.has('force')));
     if (p === '/api/sync' && req.method === 'POST') return sendJson(req, res, 200, sync(await readBody(req)));
