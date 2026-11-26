@@ -13,7 +13,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'life.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const COLLECTIONS = ['tasks', 'events', 'lists', 'done', 'settings', 'feeds', 'apps', 'projects'];
+const COLLECTIONS = ['tasks', 'events', 'lists', 'done', 'settings', 'feeds', 'apps', 'projects', 'debts'];
 const KEEP_BACKUPS = 30;
 const TOMBSTONE_DAYS = 60;
 

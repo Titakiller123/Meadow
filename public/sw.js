@@ -1,5 +1,5 @@
 // Keeps Meadow working with no signal. The app files are cached; your data lives in the app itself.
-const CACHE = 'meadow-v5';
+const CACHE = 'meadow-v5-1';
 const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/art.js', '/manifest.webmanifest', '/icon.svg', '/apple-touch-icon.png', '/icon-192.png', '/icon-512.png', '/jakarta.woff2', '/fira.woff2'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {

@@ -5,7 +5,7 @@
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const ic = (name, cls = '') => `<svg class="i ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-  const COLLS = ['tasks', 'events', 'lists', 'done', 'settings', 'feeds', 'apps', 'projects'];
+  const COLLS = ['tasks', 'events', 'lists', 'done', 'settings', 'feeds', 'apps', 'projects', 'debts'];
   const LS = 'meadow-v1';
 
   // ---------- dates (all as local 'YYYY-MM-DD') ----------
@@ -165,6 +165,7 @@
     const out = [], s = settings(), m = money(), d = dice();
     if (m && s.showMoney !== false) for (const u of m.upcoming || []) if (u.due === day) out.push({ kind: u.type === 'income' ? 'pay' : 'bill', title: u.name, sub: u.type === 'income' ? (u.variable ? 'Payday · Money Quest' : `Payday · ${fmtMoney(u.amount, m.currency)}`) : `Bill · ${fmtMoney(u.amount, m.currency)}${u.autopay ? ' · pays itself' : ''}`, app: 'money' });
     if (d && s.showGames !== false) for (const c of visibleCamps()) if (c.next && c.next.date === day) out.push({ kind: 'game', title: c.name, sub: ['Game session', c.next.note].filter(Boolean).join(' · '), time: c.next.time, app: 'dice' });
+    for (const d of openDebts()) if (dueOn(d, day)) out.push({ kind: 'debt', title: d.name, sub: `Payment due${d.min ? ' · min ' + fmtMoney(+d.min, cur()) : ''} · Debts`, debt: d.id });
     for (const a of customApps()) {
       const L = (S.links.apps || {})[a.id];
       if (a.on === false || !L || !L.data || !Array.isArray(L.data.events)) continue;
@@ -331,7 +332,7 @@
   const statusTag = st => `<span class="tag ${{ active: 'blue', planned: '', paused: 'warn', done: 'good' }[st] || ''}">${esc((STATUSES.find(x => x[0] === st) || STATUSES[1])[1])}</span>`;
 
   // ---------- rendering ----------
-  const PAGES = ['home', 'tasks', 'calendar', 'projects', 'money', 'games', 'connections', 'settings', 'more'];
+  const PAGES = ['home', 'tasks', 'calendar', 'projects', 'money', 'debts', 'games', 'connections', 'settings', 'more'];
   let tab = { today: 'home', me: 'settings' }[location.hash.slice(1)] || location.hash.slice(1) || 'home';
   if (!PAGES.includes(tab)) tab = 'home';
   let listFilter = 'all', showDone = false, calMonth = today().slice(0, 7), calSel = today(), projOpen = null;
@@ -348,30 +349,30 @@
   }
   const NAV = [
     ['home', 'grid', 'Home'], ['tasks', 'check', 'Tasks'], ['calendar', 'cal', 'Calendar'], ['projects', 'folder', 'Projects'],
-    ['money', 'wallet', 'Money'], ['games', 'dice', 'Game nights'], ['connections', 'link', 'Connections'], ['settings', 'gear', 'Settings'],
+    ['money', 'wallet', 'Money'], ['debts', 'receipt', 'Debts'], ['games', 'dice', 'Game nights'], ['connections', 'link', 'Connections'], ['settings', 'gear', 'Settings'],
   ];
   function drawSide() {
-    const counts = { tasks: dueToday().length + overdue().length || '', projects: projects().filter(p => p.status === 'active').length || '' };
+    const counts = { tasks: dueToday().length + overdue().length || '', projects: projects().filter(p => p.status === 'active').length || '', debts: openDebts().length || '' };
     $('#side').innerHTML = `<div class="brand"><img src="/icon.svg" alt="">Meadow</div>
       <button class="add" data-act="add">${ic('plus', 's')}New</button>
-      ${NAV.map(([id, icon, name], i) => `${i === 4 || i === 6 ? '<div class="gap"></div>' : ''}<button class="nav ${tab === id ? 'on' : ''}" data-tab="${id}" aria-current="${tab === id ? 'page' : 'false'}">${ic(icon, 'm')}${name}${counts[id] ? `<span class="c">${counts[id]}</span>` : ''}</button>`).join('')}
+      ${NAV.map(([id, icon, name], i) => `${i === 4 || i === 7 ? '<div class="gap"></div>' : ''}<button class="nav ${tab === id ? 'on' : ''}" data-tab="${id}" aria-current="${tab === id ? 'page' : 'false'}">${ic(icon, 'm')}${name}${counts[id] ? `<span class="c">${counts[id]}</span>` : ''}</button>`).join('')}
       <div class="foot">${syncState === 'offline' ? 'Offline. Changes are saved on this device.' : 'Synced with your PC'}</div>`;
   }
   function render() {
     document.body.dataset.theme = themeMode();
     const meta = document.querySelector('meta[name=theme-color]');
     if (meta) meta.content = getComputedStyle(document.body).getPropertyValue('--bg').trim() || '#f3f2ec';
-    const navTab = ['projects', 'money', 'games', 'connections', 'settings'].includes(tab) ? 'more' : tab;
+    const navTab = ['projects', 'money', 'debts', 'games', 'connections', 'settings'].includes(tab) ? 'more' : tab;
     document.querySelectorAll('#tabs [data-tab]').forEach(b => { b.classList.toggle('on', b.dataset.tab === navTab); b.setAttribute('aria-current', b.dataset.tab === navTab ? 'page' : 'false'); });
     const d = new Date(), date = `${WDL[d.getDay()]}, ${MON[d.getMonth()]} ${d.getDate()}`;
     const titles = {
       home: `<small>${date}</small>Overview`, tasks: `<small>${openTasks().length} open</small>Tasks`, calendar: `<small>${date}</small>Calendar`,
-      projects: `<small>${projects().filter(p => p.status === 'active').length} in progress</small>Projects`, money: '<small>From Money Quest</small>Money',
+      projects: `<small>${projects().filter(p => p.status === 'active').length} in progress</small>Projects`, money: '<small>From Money Quest</small>Money', debts: `<small>${openDebts().length} open</small>Debts`,
       games: '<small>From Dice and Luck</small>Game nights', connections: '<small>Apps and calendars</small>Connections', settings: '<small>Meadow</small>Settings', more: '<small>Everything else</small>More',
     };
     $('#title').innerHTML = titles[tab];
     const keepScroll = window.scrollY;
-    $('#app').innerHTML = { home: viewHome, tasks: viewTasks, calendar: viewCalendar, projects: viewProjects, money: viewMoney, games: viewGames, connections: viewConnections, settings: viewSettings, more: viewMore }[tab]();
+    $('#app').innerHTML = { home: viewHome, tasks: viewTasks, calendar: viewCalendar, projects: viewProjects, money: viewMoney, debts: viewDebts, games: viewGames, connections: viewConnections, settings: viewSettings, more: viewMore }[tab]();
     window.scrollTo(0, keepScroll);
     drawSide(); drawSync();
     fresh = null;
@@ -402,13 +403,13 @@
   // one day's schedule: your events, calendar feeds, bills, paydays, game sessions, other apps
   function kindColor(x) {
     if (x.color) return x.color;
-    return { bill: 'var(--bill)', pay: 'var(--money)', game: 'var(--game)', app: 'var(--accent)', feed: 'var(--accent)' }[x.kind] || COLORS[1];
+    return { bill: 'var(--bill)', pay: 'var(--money)', game: 'var(--game)', app: 'var(--accent)', feed: 'var(--accent)', debt: 'var(--warn)' }[x.kind] || COLORS[1];
   }
   function schedule(day) {
     const rows = eventsOn(day).map(e => ({ sort: e.allDay ? '00:00' : e.start || '99', when: e.allDay ? 'All day' : timeLabel(e.start), color: e.color || COLORS[1], title: e.title, sub: [e.end && !e.allDay ? `Until ${timeLabel(e.end)}` : '', e.location].filter(Boolean).join(' · '), act: 'edit-event', id: e.id }));
     for (const x of linkItemsOn(day)) {
-      const label = { bill: 'Bill', pay: 'Payday', game: 'Session', app: 'Today', feed: 'All day' }[x.kind];
-      rows.push({ sort: x.time || (x.kind === 'feed' && x.allDay ? '00:00' : '00:01'), when: x.time ? timeLabel(x.time) : label, color: kindColor(x), title: x.title, sub: x.sub, href: x.app ? appUrl(x.app) : '', act: x.kind === 'feed' ? 'feed-ev' : '', id: x.feed || '' });
+      const label = { bill: 'Bill', pay: 'Payday', game: 'Session', app: 'Today', feed: 'All day', debt: 'Due' }[x.kind];
+      rows.push({ sort: x.time || (x.kind === 'feed' && x.allDay ? '00:00' : '00:01'), when: x.time ? timeLabel(x.time) : label, color: kindColor(x), title: x.title, sub: x.sub, href: x.app ? appUrl(x.app) : '', act: x.kind === 'feed' ? 'feed-ev' : x.kind === 'debt' ? 'pay-debt' : '', id: x.feed || x.debt || '' });
     }
     return rows.sort((a, b) => a.sort.localeCompare(b.sort));
   }
@@ -510,6 +511,7 @@
       for (const u of (m.upcoming || []).filter(u => u.type !== 'income' && u.due >= t).slice(0, 2)) out.push({ day: u.due, title: u.name, sub: u.autopay ? 'Bill · pays itself' : 'Bill', icon: 'receipt', amt: u.variable ? 'Varies' : fmtMoney(u.amount, m.currency), href: appUrl('money') });
     }
     if (dice() && s.showGames !== false) for (const c of visibleCamps().filter(c => c.next && c.next.date >= t).slice(0, 2)) out.push({ day: c.next.date, title: c.name, sub: `Game session${c.next.time ? ' · ' + timeLabel(c.next.time) : ''}`, icon: 'dice', href: appUrl('dice') });
+    for (const d of openDebts()) { const due = nextDue(d); if (due) out.push({ day: due, title: d.name, sub: 'Debt payment', icon: 'receipt', amt: d.min ? fmtMoney(+d.min, cur()) : '', act: 'pay-debt', id: d.id }); }
     for (const p of projects().filter(p => p.target && p.status !== 'done' && p.target >= t)) out.push({ day: p.target, title: p.name, sub: `Project target · ${projStats(p).pct}% done`, icon: 'folder', act: 'open-project', id: p.id });
     for (const x of openTasks().filter(x => x.priority === 'high' && x.due && x.due > t)) out.push({ day: x.due, title: x.title, sub: `Important · ${listOf(x.list).name}`, icon: 'target', act: 'edit-task', id: x.id });
     for (const f of feeds().filter(f => f.on !== false)) {
@@ -644,6 +646,7 @@
         ${homeAreas()}
         ${homeWeek()}
         ${homeMoney()}
+        ${homeDebts()}
         ${homeProjects()}
         ${homeGames()}
         ${homeConnections()}
@@ -786,7 +789,161 @@
           ${goals.length ? goals.map(g => { const gp = Math.min(100, Math.round((g.saved || 0) / g.target * 100)); return `<div style="margin-top:14px"><div class="kv"><span style="color:var(--ink)">${esc(g.name)}${g.deadline ? ` <span class="muted">· by ${shortDay(g.deadline)}</span>` : ''}</span><span class="num">${fmtMoney(g.saved || 0, m.currency)} of ${fmtMoney(g.target, m.currency)}</span></div><div class="bar"><i style="width:${gp}%"></i></div></div>`; }).join('') : '<div class="empty">No savings goals in Money Quest yet.</div>'}
           <div class="note">Read from Money Quest. Make changes there.</div>
         </section>
+      </div>
+      <div style="margin-top:14px">${homeDebts() || `<section class="panel">${panelHead('receipt', 'Debts', goLink('debts', 'Open'), 'accent')}<div class="empty">Track cards, loans and money you owe, and see your debt-free date.</div></section>`}
       </div>`;
+  }
+
+  // ---------- Debts: track what you owe and plan the payoff ----------
+  const DEBT_KINDS = [['card', 'Credit card'], ['loan', 'Loan'], ['car', 'Car loan'], ['student', 'Student loan'], ['line', 'Line of credit'], ['person', 'Owed to a person'], ['other', 'Other']];
+  const debts = () => all('debts').sort((a, b) => (a.created || 0) - (b.created || 0));
+  const openDebts = () => debts().filter(d => (+d.balance || 0) > 0.005);
+  const cur = () => (money() && money().currency) || '$';
+  const kindName = k => (DEBT_KINDS.find(x => x[0] === k) || DEBT_KINDS[6])[1];
+  // the next date a payment is due, from the day of the month it's due
+  function nextDue(d, from = today()) {
+    if (!d.dueDay) return '';
+    const f = pd(from);
+    for (let i = 0; i < 2; i++) {
+      const y = f.getFullYear(), m = f.getMonth() + i, last = new Date(y, m + 1, 0).getDate();
+      const s = ds(new Date(y, m, Math.min(+d.dueDay, last)));
+      if (s >= from) return s;
+    }
+    return '';
+  }
+  const dueOn = (d, day) => { if (!d.dueDay) return false; const x = pd(day), last = new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate(); return x.getDate() === Math.min(+d.dueDay, last); };
+  // month-by-month payoff. budget = every minimum + extra, kept the same each month, so money
+  // freed up by a paid-off debt rolls onto the next one ("rollover"). minimumsOnly pays each debt's minimum and nothing more.
+  function simulate(list, extra, strategy, minimumsOnly) {
+    const ds_ = list.filter(d => (+d.balance || 0) > 0.005 && (!minimumsOnly || +d.min > 0)).map(d => ({ id: d.id, name: d.name, bal: +d.balance, apr: Math.max(0, +d.apr || 0), min: Math.max(0, +d.min || 0) }));
+    const budget = ds_.reduce((a, d) => a + d.min, 0) + (minimumsOnly ? 0 : Math.max(0, +extra || 0));
+    const series = [ds_.reduce((a, d) => a + d.bal, 0)], paidOff = {};
+    let month = 0, interest = 0;
+    while (ds_.some(d => d.bal > 0.005) && month < 600) {
+      month++;
+      for (const d of ds_) if (d.bal > 0.005) { const i = d.bal * d.apr / 1200; d.bal += i; interest += i; }
+      let pool = budget;
+      for (const d of ds_) if (d.bal > 0.005) { const p = Math.min(d.min, d.bal, pool); d.bal -= p; pool -= p; }
+      if (!minimumsOnly) {
+        const order = ds_.filter(d => d.bal > 0.005).sort(strategy === 'snowball' ? (a, b) => a.bal - b.bal || b.apr - a.apr : (a, b) => b.apr - a.apr || a.bal - b.bal);
+        for (const d of order) { if (pool <= 0) break; const p = Math.min(pool, d.bal); d.bal -= p; pool -= p; }
+      }
+      for (const d of ds_) if (d.bal <= 0.005 && !paidOff[d.id]) { d.bal = 0; paidOff[d.id] = month; }
+      series.push(ds_.reduce((a, d) => a + d.bal, 0));
+    }
+    return { months: month, interest, series, paidOff, stuck: ds_.some(d => d.bal > 0.005), budget };
+  }
+  const monthsLabel = n => { const y = Math.floor(n / 12), m = n % 12; return [y ? `${y} yr${y === 1 ? '' : 's'}` : '', m ? `${m} mo` : ''].filter(Boolean).join(' ') || '0 mo'; };
+  const monthOut = n => { const d = pd(today()); d.setDate(1); d.setMonth(d.getMonth() + n); return `${MON[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`; };
+  function debtPlan() {
+    const s = settings(), list = openDebts();
+    const plan = simulate(list, s.debtExtra || 0, s.debtStrategy || 'avalanche', false);
+    const base = simulate(list, 0, 'avalanche', true);
+    return { plan, base, list, strategy: s.debtStrategy || 'avalanche', extra: +s.debtExtra || 0 };
+  }
+  // balance over time: your plan (solid) against paying only the minimums (dashed)
+  let chartData = null;
+  function debtChart(plan, base) {
+    const W = 640, H = 180, L = 52, R = 12, T = 12, B = 26;
+    const n = Math.max(plan.series.length, base.stuck ? 0 : base.series.length, 2) - 1;
+    const max = Math.max(...plan.series, ...base.series.slice(0, n + 1)) || 1;
+    const x = i => L + (W - L - R) * i / n, y = v => T + (H - T - B) * (1 - v / max);
+    const path = sr => sr.slice(0, n + 1).map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join('');
+    const grid = [0, .5, 1].map(f => `<line x1="${L}" x2="${W - R}" y1="${y(max * f)}" y2="${y(max * f)}" class="gl"/><text x="${L - 8}" y="${y(max * f) + 4}" text-anchor="end">${fmtMoney(Math.round(max * f), cur()).replace(/\.\d+$/, '')}</text>`).join('');
+    const step = n <= 24 ? 6 : n <= 60 ? 12 : n <= 120 ? 24 : 60;
+    const ticks = []; for (let i = 0; i <= n; i += step) ticks.push(`<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${i === 0 ? 'Now' : monthOut(i)}</text>`);
+    chartData = { plan: plan.series, base: base.series, n, L, R, W };
+    const pEnd = Math.min(plan.series.length - 1, n);
+    return `<div class="dchart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Total owed over time. Your plan reaches zero in ${monthsLabel(plan.months)}${base.stuck ? '; minimum payments never clear it' : `; minimums only take ${monthsLabel(base.months)}`}.">
+      ${grid}${ticks.join('')}
+      <path d="${path(plan.series)}L${x(pEnd)} ${y(0)}L${x(0)} ${y(0)}Z" class="area"/>
+      <path d="${path(base.series)}" class="base"/>
+      <path d="${path(plan.series)}" class="plan"/>
+      <circle cx="${x(pEnd)}" cy="${y(0)}" r="4.5" class="end"/>
+      <line class="xh" x1="0" x2="0" y1="${T}" y2="${H - B}" style="display:none"/>
+      <rect class="hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/>
+    </svg><div class="tip" hidden></div>
+    <div class="legend" style="border:0;margin:6px 0 0;padding:0"><span><i class="sw plan"></i>Your plan</span><span><i class="sw base"></i>Minimums only</span></div></div>`;
+  }
+  document.addEventListener('pointermove', ev => {
+    const svg = ev.target.closest && ev.target.closest('.dchart svg'); if (!svg || !chartData) return;
+    const r = svg.getBoundingClientRect(), vx = (ev.clientX - r.left) / r.width * chartData.W;
+    const i = Math.max(0, Math.min(chartData.n, Math.round((vx - chartData.L) / (chartData.W - chartData.L - chartData.R) * chartData.n)));
+    const px = chartData.L + (chartData.W - chartData.L - chartData.R) * i / chartData.n;
+    const xh = svg.querySelector('.xh'); xh.setAttribute('x1', px); xh.setAttribute('x2', px); xh.style.display = '';
+    const tip = svg.parentElement.querySelector('.tip'), v = chartData.plan[Math.min(i, chartData.plan.length - 1)], b = chartData.base[Math.min(i, chartData.base.length - 1)];
+    tip.hidden = false; tip.innerHTML = `<b>${i ? monthOut(i) : 'Now'}</b><span><i class="sw plan"></i>Plan ${fmtMoney(Math.round(v), cur())}</span><span><i class="sw base"></i>Minimums ${fmtMoney(Math.round(b), cur())}</span>`;
+    tip.style.left = `${Math.min(r.width - 170, Math.max(0, px / chartData.W * r.width - 85))}px`;
+  });
+  document.addEventListener('pointerleave', ev => { if (ev.target.closest && ev.target.closest('.dchart svg')) { ev.target.querySelector('.xh').style.display = 'none'; ev.target.parentElement.querySelector('.tip').hidden = true; } }, true);
+
+  function debtRow(d, plan, i) {
+    const start = Math.max(+d.start || 0, +d.balance || 0), paid = start - (+d.balance || 0), pct = start ? Math.round(paid / start * 100) : 0;
+    const due = nextDue(d), done = (+d.balance || 0) <= 0.005, po = plan && plan.paidOff[d.id];
+    const monthlyInt = (+d.balance || 0) * (+d.apr || 0) / 1200;
+    return `<div class="debt ${i ? '' : 'first'} ${done ? 'done' : ''}">
+      <div class="dtop" data-act="edit-debt" data-id="${d.id}" role="button" tabindex="0">
+        <div class="lt"><b>${esc(d.name)}</b><span>${esc(kindName(d.kind))}${d.apr ? ` · ${(+d.apr).toFixed(2).replace(/\.?0+$/, '')}% APR` : ' · no interest'}${d.min ? ` · min ${fmtMoney(+d.min, cur())}` : ''}</span></div>
+        <div class="bal"><b class="num">${fmtMoney(+d.balance || 0, cur())}</b><span>${done ? 'Paid off' : po ? `clear by ${monthOut(po)}` : ''}</span></div>
+      </div>
+      <div class="bar ${done ? '' : 'blue'}" role="img" aria-label="${pct}% paid off"><i style="width:${pct}%"></i></div>
+      <div class="dfoot"><span class="num">${pct}% paid${start ? ` of ${fmtMoney(start, cur())}` : ''}</span>${!done && monthlyInt >= 0.01 ? `<span class="num">≈${fmtMoney(Math.round(monthlyInt * 100) / 100, cur())}/mo interest</span>` : ''}${due && !done ? `<span class="${diffDays(today(), due) <= 3 ? 'soon' : ''}">due ${shortDay(due)}</span>` : ''}${!done ? `<button class="btn small" data-act="pay-debt" data-id="${d.id}">${ic('plus', 's')}Payment</button>` : ''}</div>
+    </div>`;
+  }
+  function viewDebts() {
+    const all_ = debts(), t = today();
+    if (!all_.length) return `<section class="panel"><div class="empty" style="padding:8px 0 12px">Add each debt you owe, like a credit card, a loan or money borrowed from a friend. Meadow works out your debt-free date, how much interest you'll pay and the fastest way to pay it all off.</div><button class="btn solid" data-act="new-debt">${ic('plus', 's')}Add a debt</button></section>`;
+    const { plan, base, list, strategy, extra } = debtPlan();
+    const total = list.reduce((a, d) => a + +d.balance, 0), mins = list.reduce((a, d) => a + (+d.min || 0), 0);
+    const startAll = all_.reduce((a, d) => a + Math.max(+d.start || 0, +d.balance || 0), 0), paidAll = startAll - total;
+    const monthInt = list.reduce((a, d) => a + +d.balance * (+d.apr || 0) / 1200, 0);
+    const paidMonth = all_.flatMap(d => (d.payments || []).filter(p => p.date.slice(0, 7) === t.slice(0, 7))).reduce((a, p) => a + +p.amount, 0);
+    const saveInt = base.stuck ? null : base.interest - plan.interest, saveMo = base.stuck ? null : base.months - plan.months;
+    const order = [...list].sort((a, b) => (plan.paidOff[a.id] || 999) - (plan.paidOff[b.id] || 999));
+    const recent = all_.flatMap(d => (d.payments || []).map(p => ({ ...p, debt: d }))).sort((a, b) => b.date.localeCompare(a.date) || (b.at || 0) - (a.at || 0)).slice(0, 6);
+    return `<section class="panel kpis six span-3" aria-label="Debts at a glance">
+        <div class="kpi"><span class="k">${ic('receipt', 'warn')}Total owed</span><span class="v num">${fmtMoney(Math.round(total * 100) / 100, cur())}</span><span class="d">${list.length} debt${list.length === 1 ? '' : 's'}</span></div>
+        <div class="kpi"><span class="k">${ic('target', 'accent')}Paid off</span><span class="v num good">${startAll ? Math.round(paidAll / startAll * 100) : 0}%</span><span class="d">${fmtMoney(Math.round(paidAll), cur())} so far</span><span class="meter good"><i style="width:${startAll ? paidAll / startAll * 100 : 0}%"></i></span></div>
+        <div class="kpi"><span class="k">${ic('cal', 'accent')}Debt-free</span><span class="v">${plan.stuck ? 'Never' : list.length ? monthOut(plan.months) : 'Now'}</span><span class="d">${plan.stuck ? 'payments too low' : monthsLabel(plan.months)}</span></div>
+        <div class="kpi"><span class="k">${ic('wallet', 'accent')}Monthly</span><span class="v num">${fmtMoney(mins + extra, cur())}</span><span class="d">${fmtMoney(mins, cur())} min${extra ? ` + ${fmtMoney(extra, cur())}` : ''}</span></div>
+        <div class="kpi"><span class="k">${ic('flame', 'warn')}Interest/mo</span><span class="v num ${monthInt > 0 ? 'warn' : ''}">${fmtMoney(Math.round(monthInt * 100) / 100, cur())}</span><span class="d">${plan.stuck ? '' : `${fmtMoney(Math.round(plan.interest), cur())} total`}</span></div>
+        <div class="kpi"><span class="k">${ic('check', 'money')}Paid this month</span><span class="v num">${fmtMoney(Math.round(paidMonth * 100) / 100, cur())}</span><span class="d">${MON[pd(t).getMonth()]}</span></div>
+      </section>
+      <div class="cols" style="margin-top:14px">
+        <section class="panel">${panelHead('chart', 'Payoff plan', '', 'accent')}
+          <div class="field" style="margin-bottom:12px"><span class="lbl">Strategy</span><div class="seg" role="group" aria-label="Strategy">
+            <button type="button" data-act="debt-strat" data-id="avalanche" class="${strategy === 'avalanche' ? 'on' : ''}">Avalanche<small>highest interest first</small></button>
+            <button type="button" data-act="debt-strat" data-id="snowball" class="${strategy === 'snowball' ? 'on' : ''}">Snowball<small>smallest balance first</small></button></div></div>
+          <div class="field" style="margin-bottom:12px"><label class="lbl" for="debt-extra">Extra each month, on top of the minimums</label>
+            <div class="quick" style="margin:0"><input id="debt-extra" class="num" inputmode="decimal" value="${extra || ''}" placeholder="0" aria-describedby="extra-hint"><button type="button" data-act="debt-extra-set">Update</button></div>
+            <div class="minichips">${[0, 25, 50, 100, 250].map(v => `<button type="button" data-act="debt-extra" data-id="${v}" class="${extra === v ? 'on' : ''}">${v ? '+' + fmtMoney(v, cur()) : 'None'}</button>`).join('')}</div></div>
+          ${list.length ? debtChart(plan, base) : ''}
+          ${plan.stuck ? `<div class="note warn" id="extra-hint">At these payments some debts never get paid off: the interest is bigger than what goes in. Raise a minimum or add an extra amount.</div>`
+            : `<div class="minis" id="extra-hint"><div><div class="l">Debt-free</div><div class="v">${monthOut(plan.months)}</div></div><div><div class="l">Interest</div><div class="v">${fmtMoney(Math.round(plan.interest), cur())}</div></div><div><div class="l">vs minimums</div><div class="v ${saveInt > 0.5 ? 'good' : ''}">${base.stuck ? 'never ends' : saveInt > 0.5 ? `−${fmtMoney(Math.round(saveInt), cur())}` : 'same'}</div></div></div>
+              ${saveMo > 0 ? `<div class="note">Paying ${fmtMoney(extra, cur())} extra each month clears everything <b>${monthsLabel(saveMo)} sooner</b> and saves ${fmtMoney(Math.round(saveInt), cur())} in interest.</div>` : base.stuck ? '<div class="note">With only the minimums, some debts would never be paid off.</div>' : ''}`}
+          ${order.length > 1 ? `<div class="group">Pay-off order</div>${order.map((d, i) => `<div class="cd ${i ? '' : 'first'}"><span class="n ${i ? '' : 'soon'}"><b>${i + 1}</b><small>${i ? 'next' : 'focus'}</small></span><span class="lt"><b>${esc(d.name)}</b><span>${fmtMoney(+d.balance, cur())}${d.apr ? ` · ${+d.apr}%` : ''}</span></span><span class="amt">${plan.paidOff[d.id] ? monthOut(plan.paidOff[d.id]) : '—'}</span></div>`).join('')}` : ''}
+        </section>
+        <div>
+          <section class="panel">${panelHead('receipt', 'Your debts', `<button class="linkbtn" data-act="new-debt">${ic('plus', 's')}Add</button>`, 'accent')}
+            ${all_.map((d, i) => debtRow(d, plan, i)).join('')}
+          </section>
+          <section class="panel">${panelHead('list', 'Recent payments', '', 'accent')}
+            ${recent.length ? recent.map((p, i) => `<div class="line ${i ? '' : 'first'}" style="min-height:42px;padding:6px 0"><div class="lt"><b style="font-size:14.5px">${esc(p.debt.name)}</b><span>${dayLabel(p.date)}${p.note ? ' · ' + esc(p.note) : ''}</span></div><span class="amt num">${fmtMoney(+p.amount, cur())}</span></div>`).join('') : '<div class="empty">Log a payment on any debt and it shows here.</div>'}
+          </section>
+        </div>
+      </div>
+      <div class="note" style="margin:14px 2px 0">Estimates assume interest is charged monthly at the APR you enter and that you don't add new charges. Debts are kept in Meadow and sync to your phone; Money Quest isn't changed.</div>`;
+  }
+  function homeDebts() {
+    const list = openDebts(); if (!list.length) return '';
+    const { plan } = debtPlan(), total = list.reduce((a, d) => a + +d.balance, 0);
+    const startAll = debts().reduce((a, d) => a + Math.max(+d.start || 0, +d.balance || 0), 0), pct = startAll ? Math.round((startAll - total) / startAll * 100) : 0;
+    const next = list.map(d => ({ d, due: nextDue(d) })).filter(x => x.due).sort((a, b) => a.due.localeCompare(b.due)).slice(0, 2);
+    return `<section class="panel">${panelHead('receipt', 'Debts', goLink('debts', 'Plan'), 'accent')}
+      <div class="kicker">Total owed</div><div class="big num">${fmtMoney(Math.round(total * 100) / 100, cur())}</div>
+      <div class="kv" style="margin-top:10px"><span>${pct}% paid off</span><span>${plan.stuck ? 'payments too low' : `debt-free ${monthOut(plan.months)}`}</span></div><div class="bar" role="img" aria-label="${pct}% paid off"><i style="width:${pct}%"></i></div>
+      ${next.length ? `<div class="group">Next payments</div>${next.map((x, i) => `<button class="line ${i ? '' : 'first'}" style="min-height:40px;padding:6px 0" data-act="pay-debt" data-id="${x.d.id}"><div class="lt"><b style="font-size:14.5px">${esc(x.d.name)}</b></div><span class="muted" style="font-size:13px">${shortDay(x.due)}</span><span class="amt num" style="font-size:14px">${x.d.min ? fmtMoney(+x.d.min, cur()) : ''}</span></button>`).join('')}` : ''}
+    </section>`;
   }
 
   // ---------- Game nights ----------
@@ -882,7 +1039,7 @@
         <div class="muted" style="font-size:14px">${syncState === 'offline' ? 'Can\'t reach your PC right now. Everything is saved on this device and will sync later.' : 'Connected to your PC.'}${S.outbox.length ? ` ${S.outbox.length} change${S.outbox.length > 1 ? 's' : ''} waiting.` : ''}</div>
         <div class="btnrow"><button class="btn" data-act="sync-now">${ic('sync', 's')}Sync now</button><a class="btn" href="/api/export" download>${ic('download', 's')}Backup</a></div>
       </section>
-      <div class="muted" style="text-align:center;font-size:12.5px;padding:14px 0 20px">Meadow · version 5</div>
+      <div class="muted" style="text-align:center;font-size:12.5px;padding:14px 0 20px">Meadow · version 5.1</div>
       </div></div>`;
   }
 
@@ -894,6 +1051,7 @@
     const rows = [
       ['projects', 'folder', 'accent', 'Projects', act ? `${act} in progress` : 'House projects, school and more'],
       ['money', 'wallet', 'pay', 'Money', m ? `${fmtMoney(m.safeToSpend, m.currency)} safe to spend` : 'From Money Quest'],
+      ['debts', 'receipt', 'bill', 'Debts', openDebts().length ? `${fmtMoney(Math.round(openDebts().reduce((a, d) => a + +d.balance, 0)), cur())} owed · ${openDebts().length} debt${openDebts().length === 1 ? '' : 's'}` : 'Track debts and plan the payoff'],
       ['games', 'dice', 'game', 'Game nights', nextG ? `Next: ${nextG.name}, ${dayLabel(nextG.next.date)}` : 'From Dice and Luck'],
       ['connections', 'link', 'accent', 'Connections', `${conn} app${conn === 1 ? '' : 's'} connected · ${feeds().length} calendar${feeds().length === 1 ? '' : 's'}`],
       ['settings', 'gear', '', 'Settings', 'Appearance, areas, backup'],
@@ -1049,12 +1207,40 @@
     if (isNew) setTimeout(() => $('#sheet [name=name]').focus(), 80);
   }
 
+  function debtSheet(d, isNew) {
+    openSheet(`
+      <h3>${isNew ? 'New debt' : 'Edit debt'}</h3>
+      <div class="field"><label for="d-name">Name</label><input id="d-name" class="inp big" name="name" value="${esc(d.name)}" placeholder="e.g. Visa, car loan, Alex" autocomplete="off"></div>
+      <div class="field"><label for="d-kind">Type</label><select id="d-kind" class="inp" name="kind">${DEBT_KINDS.map(([v, n]) => `<option value="${v}" ${v === d.kind ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+      <div class="two"><div class="field"><label for="d-bal">Balance owed now</label><input id="d-bal" class="inp num" name="balance" inputmode="decimal" value="${d.balance === '' || d.balance == null ? '' : +d.balance}" placeholder="0.00"></div>
+      <div class="field"><label for="d-start">Original amount <small class="muted">(optional)</small></label><input id="d-start" class="inp num" name="start" inputmode="decimal" value="${d.start ? +d.start : ''}" placeholder="for progress"></div></div>
+      <div class="two"><div class="field"><label for="d-apr">Interest rate (APR %)</label><input id="d-apr" class="inp num" name="apr" inputmode="decimal" value="${d.apr ? +d.apr : ''}" placeholder="0 if none"></div>
+      <div class="field"><label for="d-min">Minimum payment / month</label><input id="d-min" class="inp num" name="min" inputmode="decimal" value="${d.min ? +d.min : ''}" placeholder="0.00"></div></div>
+      <div class="field"><label for="d-due">Payment due on day of the month</label><input id="d-due" class="inp num" name="dueDay" inputmode="numeric" value="${d.dueDay || ''}" placeholder="e.g. 15 (leave empty if none)"></div>
+      <div class="field"><label for="d-notes">Notes</label><textarea id="d-notes" class="inp" name="notes" placeholder="Account, who to pay, promo rate end date">${esc(d.notes)}</textarea></div>
+      <div class="btnrow">${isNew ? '' : '<button class="btn danger" data-act="delete-debt">Delete</button>'}<button class="btn" data-act="close">Cancel</button><button class="btn solid" data-act="save-debt">${isNew ? 'Add debt' : 'Save'}</button></div>
+    `, { kind: 'debt', debt: JSON.parse(JSON.stringify(d)), isNew });
+    if (isNew) setTimeout(() => $('#sheet [name=name]').focus(), 80);
+  }
+  function paySheet(d) {
+    openSheet(`
+      <h3>Payment on ${esc(d.name)}</h3>
+      <p class="muted" style="margin:-8px 0 14px">Owed now: <b class="num" style="color:var(--ink)">${fmtMoney(+d.balance, cur())}</b></p>
+      <div class="two"><div class="field"><label for="pay-amt">Amount</label><input id="pay-amt" class="inp big num" name="amount" inputmode="decimal" value="${d.min ? Math.min(+d.min, +d.balance) : ''}" placeholder="0.00"></div>
+      <div class="field"><label for="pay-date">Date</label><input id="pay-date" class="inp" type="date" name="date" value="${today()}"></div></div>
+      <div class="minichips" style="margin:-6px 0 14px">${d.min ? `<button type="button" data-act="pay-fill" data-id="${+d.min}">Minimum</button>` : ''}<button type="button" data-act="pay-fill" data-id="${+d.balance}">Pay it all</button></div>
+      <div class="field"><label for="pay-note">Note <small class="muted">(optional)</small></label><input id="pay-note" class="inp" name="note" autocomplete="off"></div>
+      <div class="btnrow"><button class="btn" data-act="close">Cancel</button><button class="btn solid" data-act="save-pay">Log payment</button></div>
+    `, { kind: 'pay', debt: d.id });
+    setTimeout(() => $('#sheet [name=amount]').select(), 80);
+  }
   function addSheet() {
     openSheet(`
       <h3>Add</h3>
       <button class="choice" data-act="new-task"><span class="e">${ic('check')}</span><span>New task<small>Something to do, with or without a date</small></span></button>
       <button class="choice" data-act="new-event"><span class="e">${ic('cal')}</span><span>New event<small>Something happening at a set time</small></span></button>
       <button class="choice" data-act="new-project"><span class="e">${ic('folder')}</span><span>New project<small>A bigger job with several steps, like a house project</small></span></button>
+      <button class="choice" data-act="new-debt"><span class="e">${ic('receipt')}</span><span>New debt<small>A card, loan or money you owe, with a payoff plan</small></span></button>
     `);
   }
 
@@ -1226,6 +1412,33 @@
         a.color = p.querySelector('.swatches .on')?.dataset.id || a.color;
         calsDirty = true; put('apps', a); closeSheet(); toast(`Connected ${a.name}`); return;
       }
+      case 'new-debt': return debtSheet({ id: uid(), name: '', kind: 'card', balance: '', start: '', apr: '', min: '', dueDay: '', notes: '', payments: [], created: Date.now() }, true);
+      case 'edit-debt': { const d = get('debts', id); if (d) debtSheet(d, false); return; }
+      case 'save-debt': {
+        const p = $('#sheet .panel-s'), d = sheetState.debt, num = n => { const v = parseFloat(String(p.querySelector(`[name=${n}]`).value).replace(/[^0-9.\-]/g, '')); return isNaN(v) ? 0 : v; };
+        d.name = p.querySelector('[name=name]').value.trim(); if (!d.name) return p.querySelector('[name=name]').focus();
+        d.kind = p.querySelector('[name=kind]').value; d.balance = Math.max(0, num('balance')); d.apr = Math.max(0, num('apr')); d.min = Math.max(0, num('min'));
+        d.start = Math.max(num('start'), sheetState.isNew ? d.balance : 0); const dd = Math.round(num('dueDay')); d.dueDay = dd >= 1 && dd <= 31 ? dd : '';
+        d.notes = p.querySelector('[name=notes]').value;
+        const wasNew = sheetState.isNew; put('debts', d); closeSheet();
+        if (wasNew && tab !== 'debts') { tab = 'debts'; history.replaceState(null, '', '#debts'); window.scrollTo(0, 0); render(); }
+        toast(wasNew ? `Added ${d.name}` : 'Saved'); return;
+      }
+      case 'delete-debt': { const d = sheetState.debt; del('debts', d.id); closeSheet(); toast(`Deleted ${d.name}`, () => put('debts', d)); return; }
+      case 'pay-debt': { const d = get('debts', id); if (d) paySheet(d); return; }
+      case 'pay-fill': { $('#sheet [name=amount]').value = id; return; }
+      case 'save-pay': {
+        const p = $('#sheet .panel-s'), d = get('debts', sheetState.debt); if (!d) return closeSheet();
+        const amt = parseFloat(String(p.querySelector('[name=amount]').value).replace(/[^0-9.]/g, '')); if (!(amt > 0)) return p.querySelector('[name=amount]').focus();
+        const before = JSON.parse(JSON.stringify(d)), pay = { id: uid(), date: p.querySelector('[name=date]').value || today(), amount: Math.round(amt * 100) / 100, note: p.querySelector('[name=note]').value.trim(), at: Date.now() };
+        const nb = Math.max(0, Math.round((+d.balance - pay.amount) * 100) / 100);
+        put('debts', { ...d, balance: nb, payments: [...(d.payments || []), pay] }); closeSheet();
+        if (nb === 0) { chime(); toast(`${d.name} is paid off!`, () => put('debts', before)); } else toast(`Logged ${fmtMoney(pay.amount, cur())}. ${fmtMoney(nb, cur())} left.`, () => put('debts', before));
+        return;
+      }
+      case 'debt-strat': return setSetting('debtStrategy', id);
+      case 'debt-extra': return setSetting('debtExtra', +id);
+      case 'debt-extra-set': { const v = parseFloat(String($('#debt-extra').value).replace(/[^0-9.]/g, '')); return setSetting('debtExtra', isNaN(v) ? 0 : Math.round(v * 100) / 100); }
       case 'delete-app': { const a = sheetState.app; del('apps', a.id); closeSheet(); toast(`Removed ${a.name}`, () => put('apps', a)); return; }
     }
   });
@@ -1241,6 +1454,7 @@
     setTimeout(() => { const i = document.querySelector(`[data-form=${f.dataset.form}] input`); if (i) i.focus(); }, 0);
   });
   document.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter' && ev.target.id === 'debt-extra') { ev.preventDefault(); $('[data-act=debt-extra-set]').click(); return; }
     if (ev.key === 'Escape' && !$('#sheet').hidden) closeSheet();
     if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.matches('[role=button][data-act]')) { ev.preventDefault(); ev.target.click(); }
     if (ev.key === 'Enter' && ev.target.id === 'clnew') {
