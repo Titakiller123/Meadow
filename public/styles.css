@@ -522,3 +522,46 @@ details.note p { margin: 6px 0; }
 .dchart .tip span { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .sw { display: inline-block; width: 14px; height: 0; border-top: 2px solid var(--accent); vertical-align: middle; }
 .sw.base { border-top: 2px dashed var(--muted); }
+
+/* ---------- kitchen ---------- */
+.food { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.food.first, .chips + .food { border-top: 0; }
+.food .fmain { flex: 1; min-width: 0; display: flex; gap: 12px; align-items: center; cursor: pointer; }
+.food .lt { flex: 1; min-width: 0; }
+.food .lt b { display: block; font-size: 15px; font-weight: 650; line-height: 1.3; overflow-wrap: anywhere; }
+.food .lt > span { display: block; font-size: 12.5px; color: var(--muted); }
+.food .lt .bar { margin: 5px 0 0; height: 4px; max-width: 160px; }
+.fresh { flex: none; width: 74px; padding: 5px 4px; border-radius: 8px; text-align: center; background: var(--surface-2); font-family: var(--mono); line-height: 1.15; }
+.fresh b { display: block; font-size: 11px; font-weight: 600; }
+.fresh small { display: block; font-size: 10px; color: var(--muted); margin-top: 1px; }
+.fresh.bad { background: var(--bad-soft); } .fresh.bad b { color: var(--bad); }
+.fresh.warn { background: var(--warn-soft); } .fresh.warn b { color: var(--warn); }
+.fresh.soon { background: var(--accent-soft); } .fresh.soon b { color: var(--accent-ink); }
+.fresh.good b { color: var(--good); }
+.facts { display: flex; gap: 4px; flex: none; }
+.fa { width: 44px; min-height: 44px; border-radius: 9px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; color: var(--muted); font-size: 10.5px; font-weight: 600; border: 1px solid var(--line); background: var(--surface); }
+.fa:hover { background: var(--hover); }
+.fa.good { color: var(--good); } .fa.bad { color: var(--bad); }
+.recipe { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 9px 0; border-top: 1px solid var(--line); }
+.recipe.first, .panel-h + .recipe { border-top: 0; }
+.recipe .lt { flex: 1; min-width: 0; }
+.recipe .lt b { display: block; font-size: 14.5px; font-weight: 650; }
+.recipe .lt > span { display: block; font-size: 12.5px; color: var(--muted); }
+.recipe .okk { color: var(--good); font-weight: 600; }
+.recipe .uses { display: block; font-family: var(--mono); font-size: 11px; color: var(--warn); margin-top: 1px; }
+.recipe .have { flex: none; width: 50px; text-align: center; padding: 4px 0; border-radius: 8px; background: var(--surface-2); font-size: 16px; font-weight: 600; line-height: 1.1; }
+.recipe .have small { display: block; font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.recipe .go { color: var(--muted); }
+.ingr { list-style: none; margin: 0; padding: 0; }
+.ingr li { display: flex; align-items: center; gap: 10px; min-height: 36px; border-top: 1px solid var(--line); font-size: 15px; }
+.ingr li:first-child { border-top: 0; }
+.ingr li span { flex: 1; }
+.ingr li small { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.ingr li small.late { color: var(--warn); }
+.ingr li.got .i { color: var(--good); } .ingr li.miss .i { color: var(--bad); } .ingr li.miss span { color: var(--muted); }
+.wbars { display: flex; align-items: flex-end; gap: 6px; height: 90px; padding-bottom: 14px; position: relative; }
+.wbars > div { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; position: relative; }
+.wbars i { display: block; border-radius: 3px; min-height: 0; }
+.wbars i.u { background: var(--heat3); order: 2; } .wbars i.w { background: var(--warn); order: 1; }
+.wbars span { position: absolute; bottom: -15px; left: 0; right: 0; text-align: center; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+@media (max-width: 639px) { .fa span { display: none; } .fa { width: 38px; min-height: 40px; } .facts { gap: 3px; } .fresh { width: 66px; } .food .fmain { gap: 10px; } }

@@ -5,7 +5,7 @@
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const ic = (name, cls = '') => `<svg class="i ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-  const COLLS = ['tasks', 'events', 'lists', 'done', 'settings', 'feeds', 'apps', 'projects', 'debts'];
+  const COLLS = ['tasks', 'events', 'lists', 'done', 'settings', 'feeds', 'apps', 'projects', 'debts', 'food', 'foodlog', 'recipes'];
   const LS = 'meadow-v1';
 
   // ---------- dates (all as local 'YYYY-MM-DD') ----------
@@ -165,6 +165,7 @@
     const out = [], s = settings(), m = money(), d = dice();
     if (m && s.showMoney !== false) for (const u of m.upcoming || []) if (u.due === day) out.push({ kind: u.type === 'income' ? 'pay' : 'bill', title: u.name, sub: u.type === 'income' ? (u.variable ? 'Payday · Money Quest' : `Payday · ${fmtMoney(u.amount, m.currency)}`) : `Bill · ${fmtMoney(u.amount, m.currency)}${u.autopay ? ' · pays itself' : ''}`, app: 'money' });
     if (d && s.showGames !== false) for (const c of visibleCamps()) if (c.next && c.next.date === day) out.push({ kind: 'game', title: c.name, sub: ['Game session', c.next.note].filter(Boolean).join(' · '), time: c.next.time, app: 'dice' });
+    for (const f of food()) if (f.expires === day) out.push({ kind: 'food', title: `${f.name} expires`, sub: `${(PLACES.find(p => p[0] === f.place) || PLACES[0])[1]}${fmtQty(f) ? ' · ' + fmtQty(f) + ' left' : ''} · Kitchen`, food: f.id });
     for (const d of openDebts()) if (dueOn(d, day)) out.push({ kind: 'debt', title: d.name, sub: `Payment due${d.min ? ' · min ' + fmtMoney(+d.min, cur()) : ''} · Debts`, debt: d.id });
     for (const a of customApps()) {
       const L = (S.links.apps || {})[a.id];
@@ -332,7 +333,7 @@
   const statusTag = st => `<span class="tag ${{ active: 'blue', planned: '', paused: 'warn', done: 'good' }[st] || ''}">${esc((STATUSES.find(x => x[0] === st) || STATUSES[1])[1])}</span>`;
 
   // ---------- rendering ----------
-  const PAGES = ['home', 'tasks', 'calendar', 'projects', 'money', 'debts', 'games', 'connections', 'settings', 'more'];
+  const PAGES = ['home', 'tasks', 'calendar', 'projects', 'money', 'debts', 'kitchen', 'games', 'connections', 'settings', 'more'];
   let tab = { today: 'home', me: 'settings' }[location.hash.slice(1)] || location.hash.slice(1) || 'home';
   if (!PAGES.includes(tab)) tab = 'home';
   let listFilter = 'all', showDone = false, calMonth = today().slice(0, 7), calSel = today(), projOpen = null;
@@ -349,30 +350,30 @@
   }
   const NAV = [
     ['home', 'grid', 'Home'], ['tasks', 'check', 'Tasks'], ['calendar', 'cal', 'Calendar'], ['projects', 'folder', 'Projects'],
-    ['money', 'wallet', 'Money'], ['debts', 'receipt', 'Debts'], ['games', 'dice', 'Game nights'], ['connections', 'link', 'Connections'], ['settings', 'gear', 'Settings'],
+    ['money', 'wallet', 'Money'], ['debts', 'receipt', 'Debts'], ['kitchen', 'fridge', 'Kitchen'], ['games', 'dice', 'Game nights'], ['connections', 'link', 'Connections'], ['settings', 'gear', 'Settings'],
   ];
   function drawSide() {
-    const counts = { tasks: dueToday().length + overdue().length || '', projects: projects().filter(p => p.status === 'active').length || '', debts: openDebts().length || '' };
+    const counts = { tasks: dueToday().length + overdue().length || '', projects: projects().filter(p => p.status === 'active').length || '', debts: openDebts().length || '', kitchen: useSoon().length || '' };
     $('#side').innerHTML = `<div class="brand"><img src="/icon.svg" alt="">Meadow</div>
       <button class="add" data-act="add">${ic('plus', 's')}New</button>
-      ${NAV.map(([id, icon, name], i) => `${i === 4 || i === 7 ? '<div class="gap"></div>' : ''}<button class="nav ${tab === id ? 'on' : ''}" data-tab="${id}" aria-current="${tab === id ? 'page' : 'false'}">${ic(icon, 'm')}${name}${counts[id] ? `<span class="c">${counts[id]}</span>` : ''}</button>`).join('')}
+      ${NAV.map(([id, icon, name], i) => `${i === 4 || i === 8 ? '<div class="gap"></div>' : ''}<button class="nav ${tab === id ? 'on' : ''}" data-tab="${id}" aria-current="${tab === id ? 'page' : 'false'}">${ic(icon, 'm')}${name}${counts[id] ? `<span class="c">${counts[id]}</span>` : ''}</button>`).join('')}
       <div class="foot">${syncState === 'offline' ? 'Offline. Changes are saved on this device.' : 'Synced with your PC'}</div>`;
   }
   function render() {
     document.body.dataset.theme = themeMode();
     const meta = document.querySelector('meta[name=theme-color]');
     if (meta) meta.content = getComputedStyle(document.body).getPropertyValue('--bg').trim() || '#f3f2ec';
-    const navTab = ['projects', 'money', 'debts', 'games', 'connections', 'settings'].includes(tab) ? 'more' : tab;
+    const navTab = ['projects', 'money', 'debts', 'kitchen', 'games', 'connections', 'settings'].includes(tab) ? 'more' : tab;
     document.querySelectorAll('#tabs [data-tab]').forEach(b => { b.classList.toggle('on', b.dataset.tab === navTab); b.setAttribute('aria-current', b.dataset.tab === navTab ? 'page' : 'false'); });
     const d = new Date(), date = `${WDL[d.getDay()]}, ${MON[d.getMonth()]} ${d.getDate()}`;
     const titles = {
       home: `<small>${date}</small>Overview`, tasks: `<small>${openTasks().length} open</small>Tasks`, calendar: `<small>${date}</small>Calendar`,
-      projects: `<small>${projects().filter(p => p.status === 'active').length} in progress</small>Projects`, money: '<small>From Money Quest</small>Money', debts: `<small>${openDebts().length} open</small>Debts`,
+      projects: `<small>${projects().filter(p => p.status === 'active').length} in progress</small>Projects`, money: '<small>From Money Quest</small>Money', debts: `<small>${openDebts().length} open</small>Debts`, kitchen: `<small>${food().length} items · ${useSoon().length} to use soon</small>Kitchen`,
       games: '<small>From Dice and Luck</small>Game nights', connections: '<small>Apps and calendars</small>Connections', settings: '<small>Meadow</small>Settings', more: '<small>Everything else</small>More',
     };
     $('#title').innerHTML = titles[tab];
     const keepScroll = window.scrollY;
-    $('#app').innerHTML = { home: viewHome, tasks: viewTasks, calendar: viewCalendar, projects: viewProjects, money: viewMoney, debts: viewDebts, games: viewGames, connections: viewConnections, settings: viewSettings, more: viewMore }[tab]();
+    $('#app').innerHTML = { home: viewHome, tasks: viewTasks, calendar: viewCalendar, projects: viewProjects, money: viewMoney, debts: viewDebts, kitchen: viewKitchen, games: viewGames, connections: viewConnections, settings: viewSettings, more: viewMore }[tab]();
     window.scrollTo(0, keepScroll);
     drawSide(); drawSync();
     fresh = null;
@@ -403,13 +404,13 @@
   // one day's schedule: your events, calendar feeds, bills, paydays, game sessions, other apps
   function kindColor(x) {
     if (x.color) return x.color;
-    return { bill: 'var(--bill)', pay: 'var(--money)', game: 'var(--game)', app: 'var(--accent)', feed: 'var(--accent)', debt: 'var(--warn)' }[x.kind] || COLORS[1];
+    return { bill: 'var(--bill)', pay: 'var(--money)', game: 'var(--game)', app: 'var(--accent)', feed: 'var(--accent)', debt: 'var(--warn)', food: 'var(--heat3)' }[x.kind] || COLORS[1];
   }
   function schedule(day) {
     const rows = eventsOn(day).map(e => ({ sort: e.allDay ? '00:00' : e.start || '99', when: e.allDay ? 'All day' : timeLabel(e.start), color: e.color || COLORS[1], title: e.title, sub: [e.end && !e.allDay ? `Until ${timeLabel(e.end)}` : '', e.location].filter(Boolean).join(' · '), act: 'edit-event', id: e.id }));
     for (const x of linkItemsOn(day)) {
-      const label = { bill: 'Bill', pay: 'Payday', game: 'Session', app: 'Today', feed: 'All day', debt: 'Due' }[x.kind];
-      rows.push({ sort: x.time || (x.kind === 'feed' && x.allDay ? '00:00' : '00:01'), when: x.time ? timeLabel(x.time) : label, color: kindColor(x), title: x.title, sub: x.sub, href: x.app ? appUrl(x.app) : '', act: x.kind === 'feed' ? 'feed-ev' : x.kind === 'debt' ? 'pay-debt' : '', id: x.feed || x.debt || '' });
+      const label = { bill: 'Bill', pay: 'Payday', game: 'Session', app: 'Today', feed: 'All day', debt: 'Due', food: 'Expires' }[x.kind];
+      rows.push({ sort: x.time || (x.kind === 'feed' && x.allDay ? '00:00' : '00:01'), when: x.time ? timeLabel(x.time) : label, color: kindColor(x), title: x.title, sub: x.sub, href: x.app ? appUrl(x.app) : '', act: x.kind === 'feed' ? 'feed-ev' : x.kind === 'debt' ? 'pay-debt' : x.kind === 'food' ? 'edit-food' : '', id: x.feed || x.debt || x.food || '' });
     }
     return rows.sort((a, b) => a.sort.localeCompare(b.sort));
   }
@@ -511,6 +512,7 @@
       for (const u of (m.upcoming || []).filter(u => u.type !== 'income' && u.due >= t).slice(0, 2)) out.push({ day: u.due, title: u.name, sub: u.autopay ? 'Bill · pays itself' : 'Bill', icon: 'receipt', amt: u.variable ? 'Varies' : fmtMoney(u.amount, m.currency), href: appUrl('money') });
     }
     if (dice() && s.showGames !== false) for (const c of visibleCamps().filter(c => c.next && c.next.date >= t).slice(0, 2)) out.push({ day: c.next.date, title: c.name, sub: `Game session${c.next.time ? ' · ' + timeLabel(c.next.time) : ''}`, icon: 'dice', href: appUrl('dice') });
+    for (const f of food().filter(f => f.expires && f.expires >= t && f.expires <= addDays(t, 5)).sort(sortFood).slice(0, 3)) out.push({ day: f.expires, title: f.name, sub: `Expires · ${(PLACES.find(p => p[0] === f.place) || PLACES[0])[1]}`, icon: 'fridge', act: 'edit-food', id: f.id });
     for (const d of openDebts()) { const due = nextDue(d); if (due) out.push({ day: due, title: d.name, sub: 'Debt payment', icon: 'receipt', amt: d.min ? fmtMoney(+d.min, cur()) : '', act: 'pay-debt', id: d.id }); }
     for (const p of projects().filter(p => p.target && p.status !== 'done' && p.target >= t)) out.push({ day: p.target, title: p.name, sub: `Project target · ${projStats(p).pct}% done`, icon: 'folder', act: 'open-project', id: p.id });
     for (const x of openTasks().filter(x => x.priority === 'high' && x.due && x.due > t)) out.push({ day: x.due, title: x.title, sub: `Important · ${listOf(x.list).name}`, icon: 'target', act: 'edit-task', id: x.id });
@@ -647,6 +649,7 @@
         ${homeWeek()}
         ${homeMoney()}
         ${homeDebts()}
+        ${homeKitchen()}
         ${homeProjects()}
         ${homeGames()}
         ${homeConnections()}
@@ -946,6 +949,140 @@
     </section>`;
   }
 
+  // ---------- Kitchen: what's in the fridge, what to use first, what to cook ----------
+  const PLACES = [['fridge', 'Fridge'], ['freezer', 'Freezer'], ['pantry', 'Pantry']];
+  const UNITS = ['pcs', 'g', 'kg', 'ml', 'L', 'pack', 'slices', 'cups', 'cans', 'bottles'];
+  // rough "best before" guesses in days, used when you don't enter an expiry date
+  const SHELF = [
+    [['chicken', 'turkey', 'ground', 'mince', 'fish', 'salmon', 'shrimp', 'tuna steak'], 2], [['beef', 'pork', 'steak', 'sausage'], 3],
+    [['leftover', 'cooked rice', 'soup', 'stew'], 4], [['berries', 'berry', 'strawberr', 'raspberr', 'blueberr', 'avocado'], 4],
+    [['lettuce', 'spinach', 'salad', 'herbs', 'cilantro', 'parsley', 'basil', 'mushroom', 'broccoli', 'banana', 'tofu'], 5],
+    [['bread', 'bun', 'bagel', 'ham', 'deli', 'cream'], 6], [['milk', 'juice', 'tomato', 'cucumber', 'zucchini', 'pepper', 'grape', 'bacon'], 7],
+    [['yogurt', 'yoghurt', 'hummus', 'sour cream', 'cottage'], 10], [['tortilla', 'wrap'], 14],
+    [['egg', 'cheese', 'lemon', 'lime', 'carrot', 'cabbage', 'celery'], 21], [['apple', 'orange', 'onion', 'potato', 'garlic'], 30], [['butter', 'jam', 'sauce', 'ketchup', 'mustard', 'mayo'], 60],
+  ];
+  function guessDays(name, place) {
+    if (place === 'freezer') return 90;
+    const n = name.toLowerCase();
+    for (const [keys, days] of SHELF) if (keys.some(k => n.includes(k))) return place === 'pantry' && days < 30 ? days : days;
+    return place === 'pantry' ? 180 : 7;
+  }
+  // original, simple everyday recipes. "need" = key ingredients; salt, pepper, oil and water are assumed.
+  const RECIPES = [
+    { id: 'r-omelette', name: 'Veggie omelette', mins: 10, need: ['egg'], opt: ['cheese', 'spinach', 'pepper', 'mushroom', 'onion', 'tomato', 'ham'], steps: 'Whisk 2–3 eggs with salt. Soften any chopped veg in a pan, pour in the eggs, add cheese, fold when just set.' },
+    { id: 'r-friedrice', name: 'Fried rice', mins: 15, need: ['rice', 'egg'], opt: ['carrot', 'pea', 'onion', 'chicken', 'ham', 'soy', 'pepper', 'broccoli'], steps: 'Fry chopped veg and any leftover meat, push aside, scramble an egg, add cold cooked rice and soy sauce, toss on high heat.' },
+    { id: 'r-pasta-tomato', name: 'Tomato pasta', mins: 20, need: ['pasta', 'tomato'], opt: ['garlic', 'onion', 'basil', 'cheese', 'spinach', 'mushroom'], steps: 'Cook pasta. Fry garlic and onion, add chopped or canned tomatoes, simmer 10 min, toss with pasta and cheese.' },
+    { id: 'r-quesadilla', name: 'Quesadillas', mins: 10, need: ['tortilla', 'cheese'], opt: ['chicken', 'bean', 'pepper', 'onion', 'salsa', 'spinach', 'corn'], steps: 'Fill half a tortilla with cheese and anything else, fold, toast in a dry pan 2–3 min a side.' },
+    { id: 'r-stirfry', name: 'Quick stir-fry', mins: 20, need: ['soy'], opt: ['chicken', 'beef', 'tofu', 'broccoli', 'pepper', 'carrot', 'onion', 'mushroom', 'rice', 'noodle', 'garlic'], steps: 'Fry the protein first, then hard veg, then soft veg. Add soy sauce and garlic, serve on rice or noodles.' },
+    { id: 'r-soup', name: 'Clear-the-fridge soup', mins: 35, need: ['onion'], opt: ['carrot', 'celery', 'potato', 'broccoli', 'zucchini', 'tomato', 'chicken', 'stock', 'bean', 'spinach'], steps: 'Soften onion, add chopped veg and stock or water to cover, simmer 20 min until soft. Blend if you like, season.' },
+    { id: 'r-salad', name: 'Big salad', mins: 10, need: ['lettuce'], opt: ['tomato', 'cucumber', 'pepper', 'cheese', 'egg', 'chicken', 'avocado', 'carrot', 'spinach'], steps: 'Chop everything, toss with oil, lemon or vinegar, salt and pepper.' },
+    { id: 'r-smoothie', name: 'Smoothie', mins: 5, need: ['banana'], opt: ['berr', 'yogurt', 'milk', 'spinach', 'oat', 'peanut butter', 'mango'], steps: 'Blend fruit with milk or yogurt and a handful of ice. Freeze ripe bananas so they don\'t go to waste.' },
+    { id: 'r-bananabread', name: 'Banana bread', mins: 65, need: ['banana', 'flour', 'egg'], opt: ['butter', 'sugar', 'chocolate', 'walnut'], steps: 'Mash 3 ripe bananas, mix with 2 eggs, 1/3 cup melted butter and 1/2 cup sugar, fold in 1.5 cups flour and 1 tsp baking soda. Bake 55 min at 350°F / 175°C.' },
+    { id: 'r-frittata', name: 'Frittata', mins: 25, need: ['egg'], opt: ['potato', 'spinach', 'cheese', 'onion', 'pepper', 'ham', 'mushroom', 'broccoli', 'zucchini'], steps: 'Fry veg in an oven-safe pan, pour over 6 beaten eggs, cook gently 5 min, finish under the grill until set.' },
+    { id: 'r-curry', name: 'Easy curry', mins: 30, need: ['onion'], opt: ['chicken', 'chickpea', 'potato', 'tomato', 'coconut', 'spinach', 'rice', 'curry', 'garlic', 'cauliflower'], steps: 'Fry onion, garlic and curry powder, add protein and veg, then tomatoes or coconut milk. Simmer 20 min, serve with rice.' },
+    { id: 'r-tacos', name: 'Tacos', mins: 20, need: ['tortilla'], opt: ['beef', 'ground', 'chicken', 'bean', 'cheese', 'lettuce', 'tomato', 'salsa', 'avocado', 'onion', 'sour cream'], steps: 'Brown the meat or warm the beans with spices, warm tortillas, top with whatever fresh things you have.' },
+    { id: 'r-grilledcheese', name: 'Grilled cheese', mins: 10, need: ['bread', 'cheese'], opt: ['butter', 'ham', 'tomato'], steps: 'Butter the outside of two slices, cheese in the middle, toast in a pan until golden on both sides.' },
+    { id: 'r-frenchtoast', name: 'French toast', mins: 15, need: ['bread', 'egg', 'milk'], opt: ['cinnamon', 'berr', 'banana', 'syrup'], steps: 'Whisk eggs and milk, soak slightly stale bread, fry in butter. Great for using up bread.' },
+    { id: 'r-pancakes', name: 'Pancakes', mins: 20, need: ['flour', 'egg', 'milk'], opt: ['banana', 'berr', 'butter', 'syrup'], steps: '1 cup flour, 1 egg, 1 cup milk, 2 tsp baking powder, pinch of salt. Cook ladlefuls in a hot buttered pan.' },
+    { id: 'r-roastveg', name: 'Tray of roast veg', mins: 40, need: [], opt: ['potato', 'carrot', 'pepper', 'zucchini', 'broccoli', 'onion', 'cauliflower', 'sweet potato', 'squash', 'mushroom'], min: 2, steps: 'Chop veg into even pieces, toss with oil and salt, roast at 425°F / 220°C for 30–40 min, turning once.' },
+    { id: 'r-chickenrice', name: 'Chicken and rice bowl', mins: 30, need: ['chicken', 'rice'], opt: ['broccoli', 'carrot', 'soy', 'pepper', 'onion', 'garlic'], steps: 'Season and pan-fry chicken pieces, steam or fry veg, serve over rice with soy or any sauce.' },
+    { id: 'r-pastabake', name: 'Pasta bake', mins: 40, need: ['pasta', 'cheese'], opt: ['tomato', 'ground', 'beef', 'spinach', 'mushroom', 'pepper', 'cream'], steps: 'Mix cooked pasta with sauce and veg, top with cheese, bake 20 min at 400°F / 200°C.' },
+    { id: 'r-hash', name: 'Potato hash', mins: 25, need: ['potato'], opt: ['onion', 'pepper', 'egg', 'bacon', 'ham', 'sausage', 'cheese'], steps: 'Fry diced potatoes until crisp, add onion, pepper and chopped meat, top with fried eggs.' },
+    { id: 'r-wraps', name: 'Lunch wraps', mins: 10, need: ['tortilla'], opt: ['chicken', 'ham', 'turkey', 'lettuce', 'cheese', 'tomato', 'hummus', 'cucumber', 'avocado'], steps: 'Spread, fill, roll tightly and cut in half.' },
+    { id: 'r-yogurtbowl', name: 'Yogurt bowl', mins: 5, need: ['yogurt'], opt: ['berr', 'banana', 'granola', 'oat', 'honey', 'apple'], steps: 'Yogurt topped with fruit and something crunchy.' },
+    { id: 'r-noodles', name: 'Garlic noodles', mins: 15, need: ['noodle'], opt: ['garlic', 'soy', 'butter', 'egg', 'spinach', 'mushroom', 'onion'], steps: 'Cook noodles. Melt butter with lots of garlic, add soy sauce, toss with noodles and greens.' },
+    { id: 'r-beanchili', name: 'Bean chili', mins: 35, need: ['bean'], opt: ['onion', 'tomato', 'ground', 'beef', 'pepper', 'corn', 'garlic', 'cheese', 'rice'], steps: 'Fry onion, garlic and meat, add beans, tomatoes and chili spices, simmer 25 min.' },
+    { id: 'r-applecrumble', name: 'Apple crumble', mins: 45, need: ['apple', 'flour', 'butter'], opt: ['sugar', 'oat', 'cinnamon', 'berr'], steps: 'Slice soft apples into a dish with a little sugar. Rub 1 cup flour, 1/2 cup butter and 1/2 cup sugar into crumbs, scatter on top, bake 35 min.' },
+  ];
+  const food = () => all('food').filter(f => !f.gone);
+  const recipesMine = () => all('recipes').sort((a, b) => (a.created || 0) - (b.created || 0));
+  const daysLeft = f => f.expires ? diffDays(today(), f.expires) : null;
+  function freshState(f) {
+    const n = daysLeft(f);
+    if (n == null) return { cls: '', label: 'No date' };
+    if (n < 0) return { cls: 'bad', label: `Expired ${-n === 1 ? 'yesterday' : -n + 'd ago'}` };
+    if (n === 0) return { cls: 'bad', label: 'Use today' };
+    if (n <= 3) return { cls: 'warn', label: n === 1 ? 'Use tomorrow' : `Use in ${n}d` };
+    if (n <= 7) return { cls: 'soon', label: `${n} days` };
+    return { cls: 'good', label: n > 60 ? `${Math.round(n / 30)} mo` : `${n} days` };
+  }
+  const sortFood = (a, b) => (a.expires || '9999').localeCompare(b.expires || '9999') || a.name.localeCompare(b.name);
+  const useSoon = () => food().filter(f => { const n = daysLeft(f); return n != null && n <= 3; }).sort(sortFood);
+  const fmtQty = f => f.qty === '' || f.qty == null ? '' : `${+(+f.qty).toFixed(2)}${f.unit && !['pcs'].includes(f.unit) ? (['g', 'kg', 'ml', 'L'].includes(f.unit) ? '' : ' ') + f.unit : ''}`;
+  const has = (items, k) => items.find(f => { const n = f.name.toLowerCase(); return n.includes(k) || (k.length > 3 && k.includes(n)); });
+  // rank recipes: how much of it you have, and how many soon-to-expire things it uses up
+  function recipeMatches() {
+    const items = food().filter(f => f.place !== 'freezer' || true), list = [...RECIPES, ...recipesMine().map(r => ({ ...r, mine: true, need: (r.ingredients || []).map(x => x.toLowerCase()), opt: [] }))];
+    return list.map(r => {
+      const needHave = r.need.filter(k => has(items, k)), optHave = r.opt.filter(k => has(items, k));
+      const used = [...new Set([...needHave, ...optHave].map(k => has(items, k)))];
+      const urgent = used.filter(f => { const n = daysLeft(f); return n != null && n <= 3; });
+      const missing = r.need.filter(k => !has(items, k));
+      const ok = r.need.length ? needHave.length / r.need.length : Math.min(1, optHave.length / (r.min || 2));
+      const score = ok * 100 + urgent.length * 25 + optHave.length * 4 - missing.length * 30;
+      return { r, used, urgent, missing, ok, score, can: missing.length === 0 && (r.need.length || optHave.length >= (r.min || 2)) };
+    }).filter(m => m.used.length).sort((a, b) => b.score - a.score);
+  }
+  function foodRow(f, i) {
+    const st = freshState(f), start = +f.startQty || +f.qty || 0, pct = start && f.qty !== '' ? Math.max(0, Math.min(100, Math.round(+f.qty / start * 100))) : null;
+    return `<div class="food ${i ? '' : 'first'}">
+      <div class="fmain" data-act="edit-food" data-id="${f.id}" role="button" tabindex="0">
+        <span class="fresh ${st.cls}"><b>${esc(st.label)}</b>${f.expires && Math.abs(daysLeft(f)) > 1 ? `<small>${shortDay(f.expires)}</small>` : ''}</span>
+        <span class="lt"><b>${esc(f.name)}</b><span>${esc((PLACES.find(p => p[0] === f.place) || PLACES[0])[1])}${fmtQty(f) ? ` · <span class="num">${esc(fmtQty(f))}</span> left` : ''}${f.opened ? ' · opened' : ''}</span>
+        ${pct != null && pct < 100 ? `<span class="bar ${pct <= 25 ? 'warn' : 'blue'}" role="img" aria-label="${pct}% left"><i style="width:${pct}%"></i></span>` : ''}</span>
+      </div>
+      <div class="facts"><button class="fa" data-act="use-food" data-id="${f.id}" aria-label="Used some ${esc(f.name)}">${ic('chart', 's')}<span>Use</span></button><button class="fa good" data-act="eat-food" data-id="${f.id}" aria-label="Finished ${esc(f.name)}">${ic('check', 's')}<span>Done</span></button><button class="fa bad" data-act="toss-food" data-id="${f.id}" aria-label="Threw out ${esc(f.name)}">${ic('x', 's')}<span>Toss</span></button></div>
+    </div>`;
+  }
+  let foodFilter = 'all';
+  function wasteStats() {
+    const t = today(), m0 = t.slice(0, 7), log = all('foodlog');
+    const month = log.filter(l => l.day.slice(0, 7) === m0), used = month.filter(l => l.outcome === 'used').length, wasted = month.filter(l => l.outcome === 'wasted').length;
+    const weeks = [7, 6, 5, 4, 3, 2, 1, 0].map(w => { const a = addDays(weekStart(t), -7 * w), b = addDays(a, 6); const wl = log.filter(l => l.day >= a && l.day <= b); return { a, used: wl.filter(l => l.outcome === 'used').length, wasted: wl.filter(l => l.outcome === 'wasted').length }; });
+    const top = Object.entries(log.filter(l => l.outcome === 'wasted' && l.day >= addDays(t, -90)).reduce((o, l) => { const k = l.name.toLowerCase(); o[k] = (o[k] || 0) + 1; return o; }, {})).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    return { used, wasted, rate: used + wasted ? Math.round(wasted / (used + wasted) * 100) : 0, weeks, top };
+  }
+  function viewKitchen() {
+    const items = food().sort(sortFood), soon = useSoon(), expired = items.filter(f => daysLeft(f) < 0), w = wasteStats(), matches = recipeMatches(), canMake = matches.filter(m => m.can).length;
+    const shown = foodFilter === 'soon' ? items.filter(f => daysLeft(f) != null && daysLeft(f) <= 7) : foodFilter === 'all' ? items : items.filter(f => f.place === foodFilter);
+    const count = p => items.filter(f => f.place === p).length;
+    const wmax = Math.max(1, ...w.weeks.map(x => x.used + x.wasted));
+    return `<section class="panel kpis span-3" aria-label="Kitchen at a glance">
+        <button class="kpi" data-act="food-filter" data-id="all"><span class="k">${ic('fridge', 'accent')}In stock</span><span class="v num">${items.length}</span><span class="d">${count('fridge')} fridge · ${count('freezer')} freezer · ${count('pantry')} pantry</span></button>
+        <button class="kpi" data-act="food-filter" data-id="soon"><span class="k">${ic('clock', 'warn')}Use soon</span><span class="v num ${soon.length ? 'warn' : ''}">${soon.length}</span><span class="d">within 3 days</span></button>
+        <div class="kpi"><span class="k">${ic('alert', expired.length ? 'warn' : 'accent')}Expired</span><span class="v num ${expired.length ? 'bad' : ''}">${expired.length}</span><span class="d">${expired.length ? 'check these' : 'nothing past date'}</span></div>
+        <div class="kpi"><span class="k">${ic('check', 'money')}Eaten</span><span class="v num good">${w.used}</span><span class="d">this month</span></div>
+        <div class="kpi"><span class="k">${ic('x', 'warn')}Wasted</span><span class="v num ${w.wasted ? 'warn' : ''}">${w.wasted}</span><span class="d">${w.used + w.wasted ? `${100 - w.rate}% eaten, not wasted` : 'this month'}</span><span class="meter ${w.rate > 20 ? 'warn' : 'good'}"><i style="width:${100 - w.rate}%"></i></span></div>
+        <div class="kpi"><span class="k">${ic('book', 'accent')}Can cook</span><span class="v num">${canMake}</span><span class="d">recipes right now</span></div>
+      </section>
+      <div class="cols" style="margin-top:14px">
+        <section class="panel">${panelHead('fridge', 'Your food', `<span class="count">${shown.length}</span>`, 'accent')}
+          <form class="quick" data-form="quick-food"><label class="sr" for="qfood">Add food</label><input id="qfood" name="q" placeholder="Add food, e.g. “milk 2L” or “chicken fri”" autocomplete="off" enterkeyhint="done"><button>Add</button></form>
+          <div class="chips">${[['all', 'All', items.length], ['soon', 'This week', items.filter(f => daysLeft(f) != null && daysLeft(f) <= 7).length], ...PLACES.map(([id, n]) => [id, n, count(id)])].map(([id, n, c]) => `<button class="chip ${foodFilter === id ? 'on' : ''}" data-act="food-filter" data-id="${id}" aria-pressed="${foodFilter === id}">${n} <span class="c">${c}</span></button>`).join('')}</div>
+          ${shown.length ? shown.map(foodRow).join('') : `<div class="empty">${items.length ? 'Nothing here.' : 'Add what\'s in your fridge, freezer and cupboards. Meadow guesses the expiry date if you leave it out, tells you what to use first, and suggests what to cook.'}</div>`}
+        </section>
+        <div>
+          <section class="panel">${panelHead('book', 'Cook with what you have', `<button class="linkbtn" data-act="new-recipe">${ic('plus', 's')}My recipe</button>`, 'accent')}
+            ${matches.length ? matches.slice(0, 6).map((m, i) => `<button class="recipe ${i ? '' : 'first'}" data-act="open-recipe" data-id="${m.r.id}"><span class="lt"><b>${esc(m.r.name)}${m.r.mine ? ' <span class="tag">mine</span>' : ''}</b><span>${m.can ? `<span class="okk">You have it all</span>` : `Missing ${esc(m.missing.join(', '))}`} · ${m.r.mins} min</span>${m.urgent.length ? `<span class="uses">Uses up ${esc(m.urgent.map(f => f.name).join(', '))}</span>` : ''}</span><span class="have num">${m.used.length}<small>yours</small></span></button>`).join('')
+              : '<div class="empty">Add some food and recipes that use it show up here, with the ones that use up expiring things first.</div>'}
+          </section>
+          <section class="panel">${panelHead('chart', 'Food waste', '<span class="count">8 weeks</span>', 'accent')}
+            <div class="wbars" role="img" aria-label="Eaten and wasted items per week for 8 weeks">${w.weeks.map((x, i) => `<div title="Week of ${shortDay(x.a)}: ${x.used} eaten, ${x.wasted} wasted"><i class="u" style="height:${x.used / wmax * 100}%"></i><i class="w" style="height:${x.wasted / wmax * 100}%"></i><span>${i === 7 ? 'now' : ''}</span></div>`).join('')}</div>
+            <div class="legend" style="border:0;margin-top:6px;padding:0"><span><i class="dotc" style="background:var(--heat3)"></i>Eaten</span><span><i class="dotc" style="background:var(--warn)"></i>Thrown out</span></div>
+            ${w.top.length ? `<div class="note">Most thrown out lately: <b>${w.top.map(([n, c]) => `${esc(n)} (${c})`).join(', ')}</b>. Try buying less of these or freezing them sooner.</div>` : '<div class="note">Tap Done when you finish something and Toss when it goes in the bin. Meadow tracks how much food you save.</div>'}
+          </section>
+        </div>
+      </div>`;
+  }
+  function homeKitchen() {
+    const items = food(); if (!items.length) return '';
+    const soon = useSoon().slice(0, 4), best = recipeMatches().find(m => m.urgent.length) || recipeMatches().find(m => m.can);
+    return `<section class="panel">${panelHead('fridge', 'Kitchen', goLink('kitchen', 'Fridge'), 'accent')}
+      ${soon.length ? `<div class="kicker">Use first</div>${soon.map((f, i) => { const st = freshState(f); return `<button class="line ${i ? '' : 'first'}" style="min-height:40px;padding:6px 0" data-act="edit-food" data-id="${f.id}"><div class="lt"><b style="font-size:14.5px">${esc(f.name)}</b></div><span class="tag ${st.cls === 'bad' ? 'bad' : 'warn'}">${esc(st.label)}</span></button>`; }).join('')}` : `<div class="empty">Nothing needs using up in the next 3 days. ${items.length} items in stock.</div>`}
+      ${best ? `<button class="recipe first" style="margin-top:8px;border-top:1px dashed var(--line)" data-act="open-recipe" data-id="${best.r.id}"><span class="lt"><b>Tonight: ${esc(best.r.name)}</b><span>${best.urgent.length ? `Uses up ${esc(best.urgent.map(f => f.name).join(', '))}` : 'You have everything'} · ${best.r.mins} min</span></span><span class="go">${ic('right', 's')}</span></button>` : ''}
+    </section>`;
+  }
+
   // ---------- Game nights ----------
   function viewGames() {
     const d = dice(), L = S.links.dice;
@@ -1039,7 +1176,7 @@
         <div class="muted" style="font-size:14px">${syncState === 'offline' ? 'Can\'t reach your PC right now. Everything is saved on this device and will sync later.' : 'Connected to your PC.'}${S.outbox.length ? ` ${S.outbox.length} change${S.outbox.length > 1 ? 's' : ''} waiting.` : ''}</div>
         <div class="btnrow"><button class="btn" data-act="sync-now">${ic('sync', 's')}Sync now</button><a class="btn" href="/api/export" download>${ic('download', 's')}Backup</a></div>
       </section>
-      <div class="muted" style="text-align:center;font-size:12.5px;padding:14px 0 20px">Meadow · version 5.1</div>
+      <div class="muted" style="text-align:center;font-size:12.5px;padding:14px 0 20px">Meadow · version 5.2</div>
       </div></div>`;
   }
 
@@ -1052,6 +1189,7 @@
       ['projects', 'folder', 'accent', 'Projects', act ? `${act} in progress` : 'House projects, school and more'],
       ['money', 'wallet', 'pay', 'Money', m ? `${fmtMoney(m.safeToSpend, m.currency)} safe to spend` : 'From Money Quest'],
       ['debts', 'receipt', 'bill', 'Debts', openDebts().length ? `${fmtMoney(Math.round(openDebts().reduce((a, d) => a + +d.balance, 0)), cur())} owed · ${openDebts().length} debt${openDebts().length === 1 ? '' : 's'}` : 'Track debts and plan the payoff'],
+      ['kitchen', 'fridge', 'accent', 'Kitchen', food().length ? `${food().length} items${useSoon().length ? ` · ${useSoon().length} to use soon` : ''}` : 'Fridge, expiry dates and recipes'],
       ['games', 'dice', 'game', 'Game nights', nextG ? `Next: ${nextG.name}, ${dayLabel(nextG.next.date)}` : 'From Dice and Luck'],
       ['connections', 'link', 'accent', 'Connections', `${conn} app${conn === 1 ? '' : 's'} connected · ${feeds().length} calendar${feeds().length === 1 ? '' : 's'}`],
       ['settings', 'gear', '', 'Settings', 'Appearance, areas, backup'],
@@ -1234,25 +1372,86 @@
     `, { kind: 'pay', debt: d.id });
     setTimeout(() => $('#sheet [name=amount]').select(), 80);
   }
+  function foodSheet(f, isNew) {
+    const chips = [[3, '3 days'], [7, '1 week'], [14, '2 weeks'], [30, '1 month'], [90, '3 months']];
+    openSheet(`
+      <h3>${isNew ? 'Add food' : 'Edit food'}</h3>
+      <div class="field"><label for="f-name">What is it</label><input id="f-name" class="inp big" name="name" value="${esc(f.name)}" placeholder="e.g. Milk, chicken thighs, spinach" autocomplete="off"></div>
+      <div class="field"><span class="lbl">Where</span><div class="seg" data-seg="place" role="group" aria-label="Where">${PLACES.map(([v, n]) => `<button type="button" data-v="${v}" class="${(f.place || 'fridge') === v ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+      <div class="two"><div class="field"><label for="f-qty">How much is left</label><input id="f-qty" class="inp num" name="qty" inputmode="decimal" value="${f.qty === '' || f.qty == null ? '' : +f.qty}" placeholder="e.g. 2"></div>
+      <div class="field"><label for="f-unit">Unit</label><select id="f-unit" class="inp" name="unit">${UNITS.map(u => `<option ${u === (f.unit || 'pcs') ? 'selected' : ''}>${u}</option>`).join('')}</select></div></div>
+      <div class="field"><label for="f-exp">Expires</label><input id="f-exp" class="inp" type="date" name="expires" value="${esc(f.expires || '')}">
+        <div class="minichips">${chips.map(([d, n]) => `<button type="button" data-act="exp-in" data-id="${d}">${n}</button>`).join('')}<button type="button" data-act="exp-guess">Guess for me</button></div></div>
+      <div class="toggle first"><span>Opened<small>Opened things usually go off sooner</small></span><button class="switch ${f.opened ? 'on' : ''}" data-act="sw" id="f-opened" role="switch" aria-checked="${!!f.opened}" aria-label="Opened"></button></div>
+      <div class="field" style="margin-top:12px"><label for="f-notes">Notes</label><input id="f-notes" class="inp" name="notes" value="${esc(f.notes || '')}" autocomplete="off"></div>
+      <div class="btnrow">${isNew ? '' : '<button class="btn danger" data-act="delete-food">Delete</button>'}<button class="btn" data-act="close">Cancel</button><button class="btn solid" data-act="save-food">${isNew ? 'Add' : 'Save'}</button></div>
+    `, { kind: 'food', food: JSON.parse(JSON.stringify(f)), isNew });
+    if (isNew) setTimeout(() => $('#sheet [name=name]').focus(), 80);
+  }
+  function useSheet(f) {
+    const q = +f.qty || 0;
+    openSheet(`
+      <h3>Used some ${esc(f.name)}</h3>
+      <p class="muted" style="margin:-8px 0 14px">${q ? `Left now: <b class="num" style="color:var(--ink)">${esc(fmtQty(f))}</b>` : 'How much is left?'}</p>
+      <div class="field"><span class="lbl">How much is left now</span><div class="minichips">${[[.75, '¾ left'], [.5, 'Half'], [.25, '¼ left']].map(([x, n]) => `<button type="button" data-act="left-frac" data-id="${x}">${n}</button>`).join('')}</div></div>
+      <div class="two"><div class="field"><label for="u-qty">Amount left</label><input id="u-qty" class="inp big num" name="qty" inputmode="decimal" value="${q ? Math.max(0, q - (q >= 2 ? 1 : q / 2)) : ''}"></div>
+      <div class="field"><label>Unit</label><div class="inp" style="display:flex;align-items:center;background:var(--surface-2)">${esc(f.unit || 'pcs')}</div></div></div>
+      <div class="btnrow"><button class="btn" data-act="close">Cancel</button><button class="btn solid" data-act="save-use">Save</button></div>
+    `, { kind: 'use', food: f.id, base: +f.startQty || q });
+  }
+  function recipeSheet(id) {
+    const m = recipeMatches().find(x => x.r.id === id) || { r: RECIPES.find(r => r.id === id) || { ...get('recipes', id), need: (get('recipes', id)?.ingredients || []).map(x => x.toLowerCase()), opt: [] }, used: [], urgent: [], missing: [] };
+    const r = m.r, items = food();
+    const line = (k, req) => { const f = has(items, k); return `<li class="${f ? 'got' : 'miss'}">${f ? ic('check', 's') : ic('x', 's')}<span>${esc(f ? f.name : k)}${req ? '' : ' <small>(optional)</small>'}</span>${f && f.expires ? `<small class="${daysLeft(f) <= 3 ? 'late' : ''}">${esc(freshState(f).label.toLowerCase())}</small>` : ''}</li>`; };
+    const opt = r.opt.filter(k => has(items, k));
+    openSheet(`
+      <h3>${esc(r.name)}</h3>
+      <p class="muted" style="margin:-8px 0 12px">${r.mins ? `${r.mins} min · ` : ''}${m.missing.length ? `missing ${m.missing.length}` : 'you have everything you need'}</p>
+      <ul class="ingr">${r.need.map(k => line(k, true)).join('')}${opt.map(k => line(k, false)).join('')}</ul>
+      ${r.opt.filter(k => !has(items, k)).length ? `<p class="note">Also works with: ${esc(r.opt.filter(k => !has(items, k)).join(', '))}</p>` : ''}
+      ${r.steps ? `<div class="field" style="margin-top:12px"><span class="lbl">How</span><p style="margin:0;line-height:1.55">${esc(r.steps)}</p></div>` : ''}
+      <div class="btnrow">${r.mine ? `<button class="btn danger" data-act="delete-recipe" data-id="${r.id}">Delete</button>` : ''}${m.missing.length ? `<button class="btn" data-act="shop-missing" data-id="${r.id}">${ic('cart', 's')}Add missing to shopping</button>` : ''}<button class="btn solid" data-act="close">Close</button></div>
+    `, { kind: 'recipe', recipe: r.id });
+  }
+  function myRecipeSheet() {
+    openSheet(`
+      <h3>My recipe</h3>
+      <div class="field"><label for="r-name">Name</label><input id="r-name" class="inp big" name="name" placeholder="e.g. Mom's chicken soup" autocomplete="off"></div>
+      <div class="field"><label for="r-mins">Minutes</label><input id="r-mins" class="inp num" name="mins" inputmode="numeric" placeholder="30"></div>
+      <div class="field"><label for="r-ing">Main ingredients, one per line</label><textarea id="r-ing" class="inp" name="ingredients" placeholder="chicken&#10;carrot&#10;onion"></textarea></div>
+      <div class="field"><label for="r-steps">How to make it</label><textarea id="r-steps" class="inp" name="steps"></textarea></div>
+      <div class="btnrow"><button class="btn" data-act="close">Cancel</button><button class="btn solid" data-act="save-recipe">Save</button></div>
+    `, { kind: 'myrecipe' });
+    setTimeout(() => $('#sheet [name=name]').focus(), 80);
+  }
+  function finishFood(f, outcome) {
+    const before = JSON.parse(JSON.stringify(f)), rec = { id: uid(), foodId: f.id, name: f.name, outcome, day: today(), at: Date.now(), expires: f.expires || '' };
+    put('food', { ...f, gone: outcome, goneAt: Date.now() }); put('foodlog', rec);
+    const msg = outcome === 'used' ? `Finished ${f.name}.` : `Tossed ${f.name}.`;
+    toast(msg, () => { put('food', before); del('foodlog', rec.id); }, [['Buy again', () => { addTask({ title: `Buy ${f.name}`, list: 'inbox' }); toast(`Added “Buy ${f.name}” to your tasks`); }]]);
+  }
   function addSheet() {
     openSheet(`
       <h3>Add</h3>
       <button class="choice" data-act="new-task"><span class="e">${ic('check')}</span><span>New task<small>Something to do, with or without a date</small></span></button>
       <button class="choice" data-act="new-event"><span class="e">${ic('cal')}</span><span>New event<small>Something happening at a set time</small></span></button>
       <button class="choice" data-act="new-project"><span class="e">${ic('folder')}</span><span>New project<small>A bigger job with several steps, like a house project</small></span></button>
+      <button class="choice" data-act="new-food"><span class="e">${ic('fridge')}</span><span>Add food<small>Something in the fridge, freezer or pantry, with its expiry date</small></span></button>
       <button class="choice" data-act="new-debt"><span class="e">${ic('receipt')}</span><span>New debt<small>A card, loan or money you owe, with a payoff plan</small></span></button>
     `);
   }
 
   // ---------- effects ----------
-  function toast(msg, undo) {
+  function toast(msg, undo, extra = []) {
     $('#toasts').innerHTML = ''; // one message at a time
     const el = document.createElement('div');
     el.className = 'toast'; el.setAttribute('role', 'status');
-    el.innerHTML = `<span>${esc(msg)}</span>${undo ? '<button>Undo</button>' : ''}`;
-    if (undo) el.querySelector('button').onclick = () => { undo(); el.remove(); buddyLine = null; };
+    el.innerHTML = `<span>${esc(msg)}</span>${extra.map(([l]) => `<button>${esc(l)}</button>`).join('')}${undo ? '<button>Undo</button>' : ''}`;
+    const bs = el.querySelectorAll('button');
+    extra.forEach(([, fn], i) => { bs[i].onclick = () => { el.remove(); fn(); }; });
+    if (undo) bs[bs.length - 1].onclick = () => { undo(); el.remove(); buddyLine = null; };
     $('#toasts').appendChild(el);
-    setTimeout(() => el.remove(), undo ? 5000 : 2200);
+    setTimeout(() => el.remove(), extra.length ? 7000 : undo ? 5000 : 2200);
   }
   function petals(el) {
     if (!el || !settings().cozy || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -1412,6 +1611,44 @@
         a.color = p.querySelector('.swatches .on')?.dataset.id || a.color;
         calsDirty = true; put('apps', a); closeSheet(); toast(`Connected ${a.name}`); return;
       }
+      case 'new-food': return foodSheet({ id: uid(), name: '', place: foodFilter === 'freezer' || foodFilter === 'pantry' ? foodFilter : 'fridge', qty: '', unit: 'pcs', expires: '', opened: false, notes: '', created: Date.now() }, true);
+      case 'edit-food': { const f = get('food', id); if (f) foodSheet(f, false); return; }
+      case 'sw': el.classList.toggle('on'); el.setAttribute('aria-checked', el.classList.contains('on')); return;
+      case 'exp-in': $('#sheet [name=expires]').value = addDays(today(), +id); return;
+      case 'exp-guess': { const p = $('#sheet .panel-s'), n = p.querySelector('[name=name]').value.trim(); if (!n) return p.querySelector('[name=name]').focus(); const pl = p.querySelector('[data-seg=place] .on')?.dataset.v || 'fridge'; let d = guessDays(n, pl); if (p.querySelector('#f-opened').classList.contains('on') && pl === 'fridge') d = Math.min(d, 5); p.querySelector('[name=expires]').value = addDays(today(), d); return; }
+      case 'save-food': {
+        const p = $('#sheet .panel-s'), f = sheetState.food;
+        f.name = p.querySelector('[name=name]').value.trim(); if (!f.name) return p.querySelector('[name=name]').focus();
+        f.place = p.querySelector('[data-seg=place] .on')?.dataset.v || 'fridge';
+        const q = parseFloat(p.querySelector('[name=qty]').value); f.qty = isNaN(q) ? '' : Math.max(0, q); f.unit = p.querySelector('[name=unit]').value;
+        if (sheetState.isNew || !(+f.startQty >= +f.qty)) f.startQty = f.qty;
+        f.opened = p.querySelector('#f-opened').classList.contains('on'); f.notes = p.querySelector('[name=notes]').value.trim();
+        f.expires = p.querySelector('[name=expires]').value || addDays(today(), guessDays(f.name, f.place));
+        const wasNew = sheetState.isNew; put('food', f); closeSheet();
+        if (wasNew && tab !== 'kitchen') { tab = 'kitchen'; history.replaceState(null, '', '#kitchen'); window.scrollTo(0, 0); render(); }
+        toast(wasNew ? `Added ${f.name}, good until ${dayLabel(f.expires).toLowerCase()}` : 'Saved'); return;
+      }
+      case 'delete-food': { const f = sheetState.food; del('food', f.id); closeSheet(); toast(`Removed ${f.name}`, () => put('food', f)); return; }
+      case 'use-food': { const f = get('food', id); if (f) useSheet(f); return; }
+      case 'left-frac': $('#sheet [name=qty]').value = +((sheetState.base || 1) * +id).toFixed(2); return;
+      case 'save-use': {
+        const f = get('food', sheetState.food); if (!f) return closeSheet();
+        const q = parseFloat($('#sheet [name=qty]').value); if (isNaN(q)) return $('#sheet [name=qty]').focus();
+        closeSheet(); if (q <= 0) return finishFood(f, 'used');
+        const before = { ...f }; put('food', { ...f, qty: q, startQty: f.startQty || sheetState.base || f.qty, opened: true }); toast(`${f.name}: ${fmtQty({ ...f, qty: q })} left`, () => put('food', before)); return;
+      }
+      case 'eat-food': { const f = get('food', id); if (f) finishFood(f, 'used'); return; }
+      case 'toss-food': { const f = get('food', id); if (f) finishFood(f, 'wasted'); return; }
+      case 'food-filter': foodFilter = id; if (tab !== 'kitchen') { tab = 'kitchen'; history.replaceState(null, '', '#kitchen'); } return render();
+      case 'open-recipe': return recipeSheet(id);
+      case 'new-recipe': return myRecipeSheet();
+      case 'save-recipe': {
+        const p = $('#sheet .panel-s'), name = p.querySelector('[name=name]').value.trim(); if (!name) return p.querySelector('[name=name]').focus();
+        const ingredients = p.querySelector('[name=ingredients]').value.split(/\n|,/).map(x => x.trim()).filter(Boolean);
+        put('recipes', { id: uid(), name, mins: parseInt(p.querySelector('[name=mins]').value) || 0, ingredients, steps: p.querySelector('[name=steps]').value.trim(), created: Date.now() }); closeSheet(); toast(`Saved ${name}`); return;
+      }
+      case 'delete-recipe': { const r = get('recipes', id); if (r) { del('recipes', id); closeSheet(); toast(`Deleted ${r.name}`, () => put('recipes', r)); } return; }
+      case 'shop-missing': { const m = recipeMatches().find(x => x.r.id === id); const miss = m ? m.missing : []; miss.forEach(k => addTask({ title: `Buy ${k}`, list: 'inbox' })); closeSheet(); toast(miss.length ? `Added ${miss.length} item${miss.length === 1 ? '' : 's'} to your tasks` : 'Nothing missing'); return; }
       case 'new-debt': return debtSheet({ id: uid(), name: '', kind: 'card', balance: '', start: '', apr: '', min: '', dueDay: '', notes: '', payments: [], created: Date.now() }, true);
       case 'edit-debt': { const d = get('debts', id); if (d) debtSheet(d, false); return; }
       case 'save-debt': {
@@ -1446,6 +1683,16 @@
     const f = ev.target.closest('[data-form]'); if (!f) return;
     ev.preventDefault();
     const q = f.q.value.trim(); if (!q) return;
+    if (f.dataset.form === 'quick-food') {
+      let t = q.replace(/\s+(exp|expires|by|until)$/i, ''); const pq = parseQuick(t); t = pq.title.replace(/\s+(exp|expires|by|until)$/i, '');
+      let qty = '', unit = 'pcs';
+      const um = t.match(/(?:^|\s)(\d+(?:\.\d+)?)\s*(kg|g|ml|l|L|pcs?|x|packs?|slices?|cups?|cans?|bottles?)?\s*$/) || t.match(/^(\d+(?:\.\d+)?)\s*(kg|g|ml|l|L|pcs?|x|packs?|slices?|cups?|cans?|bottles?)?\s+/);
+      if (um) { qty = +um[1]; const u = (um[2] || 'pcs').toLowerCase(); unit = u === 'l' ? 'L' : u === 'x' || u === 'pc' ? 'pcs' : UNITS.find(x => x.toLowerCase().startsWith(u.replace(/s$/, ''))) || 'pcs'; t = t.replace(um[0], ' ').trim(); }
+      const name = t.replace(/^./, c => c.toUpperCase()), place = foodFilter === 'freezer' || foodFilter === 'pantry' ? foodFilter : 'fridge';
+      const it = { id: uid(), name, place, qty, startQty: qty, unit, expires: pq.due || addDays(today(), guessDays(name, place)), opened: false, notes: '', created: Date.now() };
+      put('food', it); toast(`Added ${name}, good until ${dayLabel(it.expires).toLowerCase()}${pq.due ? '' : ' (guessed)'}`);
+      setTimeout(() => { const i = document.querySelector('[data-form=quick-food] input'); if (i) i.focus(); }, 0); return;
+    }
     const parsed = parseQuick(q);
     if (f.dataset.form === 'quick-today') addTask({ title: parsed.title, priority: parsed.priority, due: parsed.due || today() });
     else if (f.dataset.form === 'quick-project') { const pr = get('projects', f.dataset.id); addTask({ title: parsed.title, priority: parsed.priority, due: parsed.due, list: pr ? pr.area : 'inbox', project: f.dataset.id }); }
